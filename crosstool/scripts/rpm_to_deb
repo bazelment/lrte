@@ -1,0 +1,292 @@
+#!/bin/bash -e
+# 
+# Copyright 2008 Google Inc.
+# All Rights Reserved.
+# Author: Ollie Wild (aaw@google.com)
+# 
+# Usage: rpm_to_deb RPM1 ...
+#
+# Convert a list of RPM packages to Debian packages.  Preserve package
+# dependencies.
+#
+
+MAKE_SRC_DEB=
+BINARY_DEB_ARCH=$(dpkg --print-architecture)
+
+
+# Usage: fix_section DIR RPM
+#
+# Updates the section of the unpacked Debian source archive at DIR based on
+# the group of RPM.
+#
+fix_section() {
+  [ $# -eq 2 ] || exit 1
+
+  local dir rpm
+  dir="$1"
+  rpm="$2"
+
+  # Grab the group from the rpm file.
+  local group
+  group="$(rpm -q --queryformat "%{GROUP}" -p "$rpm")"
+
+  local section
+  case "$group" in
+    Development/*)
+      section=devel
+      ;;
+    */Libraries)
+      section=libs
+      ;;
+    *)
+      echo "unrecognized package group" 1>&2
+      exit 1
+      ;;
+  esac
+
+  # Fixup the section.
+  sed -i -e 's/^\(Section:\).*$/\1 '"$section"'/' "$dir/debian/control"
+}
+
+
+# Usage: fix_maintainer DIR RPM
+#
+# Updates the maintainer of the unpacked Debian source archive at DIR to match
+# the packager of RPM.
+#
+fix_maintainer() {
+  [ $# -eq 2 ] || exit 1
+
+  local dir rpm
+  dir="$1"
+  rpm="$2"
+
+  # Grab the maintainer from the rpm file.
+  local maintainer
+  maintainer="$(rpm -q --queryformat "%{PACKAGER}" -p "$rpm")"
+
+  # Fixup the maintainer.
+  sed -i -e 's/^\(Maintainer:\).*$/\1 '"$maintainer"'/' "$dir/debian/control"
+}
+
+
+#
+# Usage: fix_depends DIR RPM
+#
+# Updates the dependencies of the unpacked Debian source archive at DIR to
+# match the dependencies in RPM.
+#
+fix_depends() {
+  [ $# -eq 2 ] || exit 1
+
+  local dir rpm
+  dir="$1"
+  rpm="$2"
+
+  # Grab package dependencies.  Ignore specific files, rpmlib and perl features.
+  # Remove package version since the format is defferent from rpm to deb.
+  # Format the dependencies.
+  local depends
+  depends="$(rpm -qRp "$rpm" | \
+             sed -e '/^rpmlib/d' -e '/^perl(/d' -e '/^\//d' -e 'H' -e 's/ *$//' | \
+             cut -d ' ' -f 1 | \
+             tr '\n' ',' | \
+             sed -e 's/,$//')"
+
+  # Fixup dependencies.
+  sed -i -e 's/^\(Depends:\).*$/\1 '"$depends"'/' "$dir/debian/control"
+}
+
+
+#
+# Usage: fix_arch DIR ARCH
+#
+# Converts the architecture of the unpacked Debian source archive at DIR to
+# ARCH.  Typical values are i386, amd64, and any.
+#
+fix_arch() {
+  [ $# -eq 2 ] || exit 1
+
+  local dir arch
+  dir="$1"
+  arch="$2"
+
+  # Modify the architecture.
+  sed -i -e 's/^\(Architecture:\).*$/\1 '"$arch"'/' "$dir/debian/control"
+}
+
+
+#
+# Usage: fix_description DIR
+#
+# Remove any references to alien from the unpacked Debian source archive
+# at DIR.
+#
+fix_description() {
+  [ $# -eq 1 ] || exit 1
+
+  local dir
+  dir="$1"
+
+  # This is just a fancy way of deleting the last two lines from the control
+  # file.
+  sed -i -e '$d' "$dir/debian/control"
+  sed -i -e '$d' "$dir/debian/control"
+}
+
+#
+# Usage: fix_standards_version DIR
+#
+# Insert a "Standards-Version: 3.8.0" specification into the Debian source
+# archive at DIR.
+#
+fix_standards_version() {
+  [ $# -eq 1 ] || exit 1
+
+  local dir
+  dir="$1"
+
+  sed -i -e '/^Source:/a\
+Standards-Version: 3.8.0' "$dir/debian/control"
+}
+
+#
+# Usage: fix_build_depends DIR
+#
+# Insert a "Build-Depends: debhelper (>= 6.0.0)" specification into the
+# Debian source archive at DIR.  Verifies that there is no Build-Depends
+# line already in the file.
+#
+fix_build_depends() {
+  [ $# -eq 1 ] || exit 1
+
+  local dir
+  dir="$1"
+
+  if grep '^Build-Depends:' "$dir/debian/control" > /dev/null 2>&1; then
+    echo "$dir/debian/control already contains a Build-Depends line." 1>&2
+    exit 1
+  fi
+
+  sed -i -e '/^Source:/a\
+Build-Depends: debhelper (>= 5.0.0)' "$dir/debian/control"
+}
+
+#
+# Usage: fix_changelog DIR RPM
+#
+# Transform the changelog in RPM into something suitable for the Debian
+# source archive at DIR.
+#
+# Actually, right now this just fakes up a chnagelog that's slightly less
+# bogus than what alien makes by default.  (Alien puts a bad user name into
+# the change log, because it's run under fakeroot, and also seems to stuff
+# one line of the change description at the end of the file.
+#
+fix_changelog() {
+  [ $# -eq 2 ] || exit 1
+
+  local dir
+  dir="$1"
+  local rpm
+  rpm="$2"
+
+  local today=$(date -R)
+
+  # Keep the first line, it's easier than trying to figure out the
+  # package name and version in this script.
+  head -n 1 "$dir/debian/changelog" > "$dir/debian/changelog.tmp"
+  cat >> "$dir/debian/changelog.tmp" <<EOF
+
+  * Converted from .rpm format to .deb by alien / crosstool rpm_to_deb
+
+ -- c-compiler-team <c-compiler-team@google.com>  $today
+EOF
+  mv -f "$dir/debian/changelog.tmp" "$dir/debian/changelog"
+}
+
+convert_rpm() {
+  [ $# -eq 1 ] || exit 1
+
+  local rpm
+  rpm="$1"
+  echo "Converting $rpm"
+
+  # Run alien to generate a temporary build directory.  Store the name of the
+  # directory.
+  local dir
+  dir="$(alien --single --keep-version "$rpm" | \
+         sed -e 's/^Directory //' -e 's/ prepared\.$//')"
+
+  # Touch up the build directory.
+  fix_depends "$dir" "$rpm"
+  fix_maintainer "$dir" "$rpm"
+  fix_section "$dir" "$rpm"
+  fix_description "$dir"
+  fix_standards_version "$dir"
+  fix_build_depends "$dir"
+  fix_changelog "$dir" "$rpm"
+
+  # Build the final package.
+  if [ $MAKE_SRC_DEB ]; then
+    fix_arch "$dir" any
+    pushd "$dir" > /dev/null
+    dpkg-buildpackage -S -us -uc
+    popd > /dev/null
+  else
+    fix_arch "$dir" "$BINARY_DEB_ARCH"
+    pushd "$dir" > /dev/null
+    dpkg-buildpackage -B -uc -a"$BINARY_DEB_ARCH"
+    popd > /dev/null
+  fi
+
+  # Remove the temporary directory.
+  rm -rf "$dir"
+}
+
+convert_rpm_list() {
+  local rpm
+  for rpm in "$@"; do
+    convert_rpm "$rpm"
+  done
+}
+
+main() {
+  # We must be run as root.  Otherwise, generate an error.
+  if [ "$(whoami)" != "root" ]; then
+    echo "$(basename "$0") must be run as root (or via fakeroot)" 1>&2
+    exit 1
+  fi
+
+  # It is recommended that the EMAIL environment variable be set.  Otherwise,
+  # alien will attempt to generate one, which will almost certainly be wrong.
+  if [ -z "$EMAIL" ]; then
+    cat <<EOF 1>&2
+***************************************************************************
+* WARNING: It is recommended that you set the EMAIL environment variable. *
+* Otherwise, alien will choose one and it will probably be wrong.         *
+***************************************************************************
+EOF
+  fi
+
+  # Parse command-line options.
+  while [ $# -ne 0 ]; do
+    case "$1" in
+      -s|--source)
+	MAKE_SRC_DEB=1
+	shift
+	;;
+      --binary-deb-arch=*)
+	BINARY_DEB_ARCH=$(echo "$1" | sed -e 's,^--binary-deb-arch=,,')
+	shift
+	;;
+      *)
+        break;
+	;;
+    esac
+  done
+
+  convert_rpm_list "$@"
+}
+
+main "$@"

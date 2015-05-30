@@ -1,0 +1,15 @@
+#!/bin/sh
+
+#
+# This script duplicates files with multiple hard links.  This prevents RPM
+# from generating an rpmlib(PartialHardlinkSets) dependency, which is
+# incompatible with older versions of rpm.
+#
+
+if [ -z "$RPM_BUILD_ROOT" -o "$RPM_BUILD_ROOT" = "/" ]; then
+  exit 0
+fi
+
+find $RPM_BUILD_ROOT -type f -links +1 \
+     -execdir cp -a '{}' '{}.tmp' ';' \
+     -execdir mv '{}.tmp' '{}' ';'
