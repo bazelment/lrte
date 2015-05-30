@@ -1,0 +1,311 @@
+# Changelog for GRTE v1 RPMs
+
+%changelog
+* Mon Dec 07 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Bumped RPM release number for 1.2-2 release (fixed permissions).
+- Integrated CL 36773-p2 to isolate against current umask
+
+* Mon Dec 07 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Bumped RPM release number for 1.2-1 release.  (Minor version bump needed
+  so that other packages that want to use the new symlinks can depend on
+  this release.)
+
+* Mon Dec 07 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- For bug http://b/1277482 -- create new symlinks for grte ELF interpreters
+  with short pathnames.
+
+* Mon Dec 07 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Integrated CLs 36734-p2 and 36751-p2.  This makes building grte on release
+  branch possible on gHardy, and (almost) bit-identical to previous builds
+  (which were done on gDapper).
+
+* Sat Nov 21 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.1-1 release.  (Minor version bump needed
+  so that other packages that want to use the new symlinks can depend on
+  this release.)
+
+* Sat Nov 21 2009 Chris Demetriou <cgd@google.com>
+- For bug http://b/1277482, add symlinks /lib/ld-grte1.so.2 and
+  /lib/ld-grte1-x86-64.so.2 to provide short paths to the GRTE dynamic loader
+  (suitable for binary editing existing binaries' PT_INTERP sections).
+
+* Tue Sep 22 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- For bug http://b/2136142 -- ensure proper stack alignment for SSE2 in
+  32-bit makecontext.
+
+* Fri Aug 21 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-38 release.
+
+* Wed Aug 19 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Initialize __google_auxv only once.
+
+* Fri Jul 31 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Initialize __google_auxv before shared library initializers are run.
+  Export it from ld-2.3.6.so, so google3 shared libraries could be
+  loaded into executables built against grte-1.0-34 and earlier.
+
+* Thu May 14 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-37 release.
+
+* Wed May 13 2009 Chris Demetriou <cgd@google.com>
+- For bug http://b/1784538 fix assertion failure that occurs when the dynamic
+  loader's realloc cannot get memory contiguous with the original allocation.
+
+* Mon Apr 13 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-36 release.
+
+* Mon Apr 13 2009 Chris Demetriou <cgd@google.com>
+- For bugs http://b/1760338 and http://b/1784891 fix libtool .la files
+  so they don't contain directories inappropriate for the given library
+  type (32-bit / 64-bit).  (Does not affect grte-runtimes.)
+
+* Fri Mar 13 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-35 release.
+
+* Fri Mar 13 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Export ___google_auxv (Google-specific modification), so google3
+  debugging support code can reliably acess it.
+
+* Fri Mar 13 2009 Chris Demetriou <cgd@google.com>
+- Fix issue in which mpfr was not correctly using 'ar D' to build
+  bit-identical archives.  (Does not affect grte-runtimes.)
+
+* Thu Mar 12 2009 Chris Demetriou <cgd@google.com>
+- Add support for 'deterministic mode' ('D' flag) in ar.  Use it when
+  building to make .a files rebuild bit-identical from the same inputs.
+  Also, do not package 'nscd' binaries in grte-gde (since they differ
+  from build to build, and are unneeded).  Finally, when gzipping locale
+  data, use the '-n' flag to avoid including timestamps in the .gz files.
+  (Only the .gz timestamp change affects the grte-runtimes package.)
+
+* Tue Mar 10 2009 Chris Demetriou <cgd@google.com>
+- For bug http://b/1218530, fix stack-usage issues in iconv_open,
+  strcoll_l, and an internal stdio routine caused by alloca overuse.
+
+* Fri Mar 06 2009 Chris Demetriou <cgd@google.com>
+- For bug http://b/1218561 integrate version 1.72 of upstream posix/glob.c,
+  which fixes overuse of alloca that can cause stack overflow.
+
+* Thu Feb 12 2009 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-34 release.
+
+* Thu Feb 12 2009 Chris Demetriou <cgd@google.com>
+- For bug http://b/1218561 apply upstream patch to to avoid stack
+  overuse when initgroups is called.
+
+* Tue Jan 27 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- Enable --build-id for everything built by GRTE/gcc.
+
+* Tue Jan 13 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
+- For bug http://b/1566762 prune "garbage" from debuginfo.
+
+* Thu Nov 13 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-33 release.
+
+* Tue Nov 11 2008 Chris Demetriou <cgd@google.com>
+- Revert fix for for bug http://b/1093328 (added on 2008-11-04).
+
+* Fri Nov 07 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-32 release.
+
+* Thu Nov 06 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1423672 improve header packaging to keep GRTE headers
+  from defeating GCC's multiple-inclusion optimizations.  This results
+  in a 20+% reduction in number of included headers while building
+  a particular Google application.
+
+* Tue Nov 04 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1093328 fix thread-creation performance issue
+  when low 2GB of memory is full.
+
+* Fri Oct 17 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-31 release.
+
+* Fri Oct 17 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1412129 fix issue with 'clone' unwind info
+  that could cause programs to hang on C++ exceptions.
+
+* Mon Sep 15 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-30 release.
+
+* Mon Sep 15 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1157323 remove deprecation warnings from sys_nerr and
+  sys_errlist, since they warn even if referenced only from debug info.
+
+* Mon Sep 15 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-29 release.
+
+* Mon Sep 15 2008 Chris Demetriou <cgd@google.com>
+- Fix packaging issue in which links to getconf32/getconf64 were being
+  shipped as real files (instead of symlinks) due to debuginfo generation.
+
+* Fri Sep 12 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-28 release.
+
+* Fri Sep 12 2008 Chris Demetriou <cgd@google.com>
+- Rework the way Debian packages are created, so that .changes
+  files are built for all packages.
+
+* Fri Sep 12 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1373618 fix use of uninitialized memory when
+  creating the .gnu_debuglink section.
+
+* Thu Sep 11 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-27 release.
+
+* Thu Sep 11 2008 Chris Demetriou <cgd@google.com>
+- Add a Build-Depends line to the Debian source package control file,
+  to satisfy lintian.
+
+* Tue Sep 09 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1157323 force Berkeley DB installation not to strip
+  executables, generate debug files as the last step of package-gathering
+  (after gathering all of the executables), and clean up debuginfo package
+  directory list (to include new directories which contain debug files).
+
+* Tue Sep 09 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1157323 build argv0switch with debugging.
+
+* Mon Sep 08 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1157323 various improvements to build and packaging, the
+  largest being to package the sources used for the build into a 'debug-src'
+  directory, and use -fdebug-prefix-map to translate the original source
+  paths to reference that directory.  The other minor changes here: build
+  with 'set -ex' to print commands and stop on error, fix missing
+  regenerated file for -fdebug-prefix-map that caused the option not to be
+  passed to the assembler, and fix the GCC configure script's detection of
+  the GNU assembler [us]leb128 directives.
+
+* Thu Sep 04 2008 Chris Demetriou <cgd@google.com>
+- Bumped RPM release number for 1.0-26 release.
+
+* Thu Sep 04 2008 Chris Demetriou <cgd@google.com>
+- For http://b/1157323 rename the grte-runtimes-debuginfo package
+  to be just grte-debuginfo.
+
+* Wed Sep 03 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1157323 back-port support from gcc 4.3.1
+  for -fdebug-prefix-map.
+
+* Fri Aug 29 2008 Chris Demetriou <cgd@google.com>
+- For bug http://b/1347519 back-port change from GCC which
+  avoids installing .gch files (precompiled headers).
+
+* Wed Aug 27 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1345873 link argv0switch against GRTE libraries
+    and dynamic loader.
+
+* Wed Aug 27 2008 Chris Demetriou <cgd@google.com>
+  - Fix changelog inclusion in grte-gde and grte-headers packages.
+
+* Sun Aug 17 2008 Chris Demetriou <cgd@google.com>
+  - Bumped RPM release number for 1.0-25 release.
+
+* Sun Aug 17 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1186325 fix configure tests for various features to
+    use -fPIC, so that they test the features correctly on x86_64.
+
+* Sat Aug 16 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1151796 and http://b/1152032 fix unwind information
+    for memcmp and clone.
+
+* Sat Aug 16 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1212500 fix x86_64 offsets into ucontext_t used
+    to store certain data, fixing getcontext() et al.
+
+* Sat Aug 16 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/798841 make x86_64 pthread_once retain required
+    stack alignment.
+
+* Sat Aug 16 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1157323 create a new grte-runtimes-debuginfo package.
+    Make symbols-only .debug files corresponding to each library
+    in the grte-runtimes packages, and have a GNU debuginfo link from
+    the grte-runtimes libraries to the .debug files with symbols.
+
+* Wed Aug 13 2008 Chris Demetriou <cgd@google.com>
+  - For http://b/1157323 build all GRTE libraries with debugging
+    information enabled.  This has no effect on the runtime libraries
+    other than to rename a number of symbols in glibc (which are
+    effectively local labels, but are not named as such by glibc).
+
+* Sun Aug 10 2008 Chris Demetriou <cgd@google.com>
+  - Improvements to the build process, including scripts to integrate
+    changes to the release branch, to label releases, and to do
+    one-command builds.
+
+* Sun Aug 10 2008 Chris Demetriou <cgd@google.com>
+  - Integrate remains of CL 12994 (set Packager RPM tags) missed in
+    a previous integrate, and integrate CL 13170 (fix various gHardy
+    packaging issues).  For http://b/1259934
+
+* Wed Aug 6 2008 Chris Demetriou <cgd@google.com>
+  - Bumped RPM release number for 1.0-24 release.
+
+* Tue Aug 5 2008 Chris Demetriou <cgd@google.com>
+  - Improve repeatability of GCC builds: avoid dates in manual pages,
+    don't put build dates in Fortran .mod files, and build libstdc++-v3
+    PCH files with -frandom-seed=$@.  For http://b/1284236
+
+* Tue Aug 5 2008 Chris Demetriou <cgd@google.com>
+  - Improve repeatability of GRTE builds: Set size of undefined symbols
+    from dynamic libraries (in executables and other dynamic libraries)
+    to zero.  For http://b/1284236
+
+* Mon Jul 21 2008 Chris Demetriou <cgd@google.com>
+  - Bumped RPM release number for 1.0-23 release.
+
+* Mon Jul 21 2008 Chris Demetriou <cgd@google.com>
+  - Support kernel version 2.6.9, to enable use of GRTE on RH AS 4.
+
+* Fri Jul 18 2008 Chris Demetriou <cgd@google.com>
+  - Integrate CL 13188: Disable static link warnings for the functions:
+    dlopen, dlmopen, initgroups, getgrouplist, getaddrinfo.
+
+* Thu Jul 10 2008 Kean Johnston <jkj@google.com>
+  - Bumped RPM release number for 1.0-22 release.  (This changelog
+    entry was added after the release was created.)
+
+* Sat Jul 5 2008 Chris Demetriou <cgd@google.com>
+  - In grte-build, set LC_ALL=C when building to avoid environment
+    dependencies.  Also, sync LC_ALL and /dev/null-as-stdin changes
+    to grte-package.  (No change to generated binaries).
+  - Tweak glibc errlist build slightly to be deterministic when built
+    different versions of GNU awk.  (No change to generated binaries).
+
+* Tue Jul 1 2008 Kean Johnston <jkj@google.com>
+  - Bumped RPM release number for 1.0-21 release.
+  - Updated ld.so.conf to explicitly include the correct list of search
+    directories. Fixes 1242661.
+
+* Mon Jun 30 2008 Chris Demetriou <cgd@google.com>
+  - Fix for NSS 'cache' service not working by resyncing to current
+    NSS cache code.
+
+* Tue May 27 2008 Kean Johnston <jkj@google.com>
+  - Bumped RPM release number for 1.0-20 release.
+
+* Mon May 26 2008 Chris Demetriou <cgd@google.com>
+  - Bumped RPM release number for 1.0-19 release.
+
+* Mon May 26 2008 Chris Demetriou <cgd@google.com>
+  - Integrated CL 12074: Backport unwind info for lll_mutex_lock and
+    related functions (lowlevellock functions) from current glibc sources.
+  - Integrated CL 12075: Add unwind info to i486 and x86_64
+    pthread_rwlock_timed{rd,wr}lock.
+  - Integrated CL 12076: Add unwind info to i486 pthread_rwlock_{rd,wr,un}lock.
+  - Integrated CL 12077: Add unwind info to i486 sem_post function.
+  - Integrated CL 12078: Add unwind info to i486 pthread_cond_{broadcast,signal}.
+  - Integrated CL 12079: Add unwind info to i486 pthread_barrier_wait.
+  - Integrated CL 12080: README.google entry for unwind descriptor additions.
+  - Integrated CL 12092: Document release build restrictions + branch location.
+  - Integrated CL 12108: Add warnings to build script for possible release
+    build issues.
+
+* Fri May 23 2008 Kean Johnston <jkj@google.com> and Chris Demetriou <cgd@google.com>
+  - Bumped RPM release number for new release.
+  - Changed libc to not include date/time specific build strings for later
+    reproducability.
+  - Changed build script to fix ncurses build reproducability issue.
+  - Changed gdbm to remove date/time stamps for reproducability.
+  - Changed libstdc++ build to use a consistent random seed for reproducability.
