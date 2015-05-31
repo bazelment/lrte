@@ -11,17 +11,17 @@
 %define __os_install_post %{nil}
 
 Summary: Google Runtime Environment (GRTE) Version %{grte_version} Debug Symbols
-Name: grte-debuginfo
+Name: %{grte_basename}-debuginfo
 Version: %{grte_rpmver}
 Release: %{grte_rpmrel}
 License: GPL
 Group: Development/Debuggers
 BuildRoot: %{_tmppath}/grtev%{grte_version}-debuginfo
 AutoReqProv: no
-Packager: C Compiler Team <c-compiler-team@google.com>
+Packager: Release Engineer <%{EMAIL}>
 
 %description
-Debug symbols for the libaries in the grte-runtimes package.
+Debug symbols for the libaries in the %{grte_basename}-runtimes package.
 
 %prep
 
@@ -33,16 +33,14 @@ Debug symbols for the libaries in the grte-runtimes package.
 
 %files
 %defattr(-,root,root)
-/usr/grte/v%{grte_version}/bin/.debug
-/usr/grte/v%{grte_version}/debug-src
-/usr/grte/v%{grte_version}/lib/.debug
-/usr/grte/v%{grte_version}/lib/gconv/.debug
-/usr/grte/v%{grte_version}/lib64/.debug
-/usr/grte/v%{grte_version}/lib64/gconv/.debug
-/usr/grte/v%{grte_version}/libexec/.debug
-/usr/grte/v%{grte_version}/libexec/gcc/x86_64-linux-gnu/4.2.2/.debug
-/usr/grte/v%{grte_version}/libexec/gcc/x86_64-linux-gnu/4.2.2/install-tools/.debug
-/usr/grte/v%{grte_version}/sbin/.debug
-/usr/grte/v%{grte_version}/x86_64-linux-gnu/bin/.debug
+%{grte_root}/bin/.debug
+%{grte_root}/debug-src
+%{grte_root}/lib64/.debug
+%{grte_root}/lib64/gconv/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/install-tools/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/plugin/.debug
+%{grte_root}/sbin/.debug
+%{grte_root}/x86_64-linux-gnu/bin/.debug
 
 %include %{grte_changelog}

@@ -1,6 +1,10 @@
 # Changelog for GRTE v1 RPMs
 
 %changelog
+* Sat May 30 2015 Ming Zhao <mzhao@luminatewireless.com>
+- Initial version based on the open source version from
+  https://code.google.com/p/google-search-appliance-mirror/downloads/detail?name=grte-1.2.2-src.tar.bz2&amp;can=2&amp;q=
+
 * Mon Dec 07 2009 Paul Pluzhnikov <ppluzhnikov@google.com>
 - Bumped RPM release number for 1.2-2 release (fixed permissions).
 - Integrated CL 36773-p2 to isolate against current umask

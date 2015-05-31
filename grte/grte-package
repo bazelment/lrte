@@ -44,7 +44,7 @@ export LC_ALL
 
 absname=`readlink -f "$0"`
 absroot="${absname%/*}"
-rpmbuild='/home/build/buildtools/buildhelpers/v2/rpm-4.4.1/bin/rpmbuild'
+# rpmbuild='/home/build/buildtools/buildhelpers/v2/rpm-4.4.1/bin/rpmbuild'
 
 [ -f "${absroot}/grte.cfg" ] || {
   error "could not find ${absroot}/grte.cfg"
@@ -96,6 +96,8 @@ merge_headers() {
   dir64="${2}"
   final="${3}"
   [ -d "${final}" ] || mkdir -p "${final}"
+
+  [ "${grte_m32}" = "0" ] || {
   cd "${dir32}"
   for d in `find . -type d`; do
     mkdir -p "${final}/${d}"
@@ -158,6 +160,7 @@ merge_headers() {
   for l in `find . -type l`; do
     cp -r "${dir32}/${l}" "${final}/$l"
   done
+  }  # end of if copying dir32(m32 = 1)
 
   #
   # Have to do it all over again using the 64-bit headers as the source as
@@ -199,6 +202,7 @@ merge_binaries() {
   final="${3}"
   [ -d "${final}" ] || mkdir -p "${final}"
 
+  [ "${grte_m32}" = "0" ] || {
   cd "${dir32}"
   for f in `find . -type f`; do
     if [ -f "${dir64}/${f}" ]; then
@@ -220,6 +224,7 @@ merge_binaries() {
   for l in `find . -type l`; do
     cp -r "${dir32}/${l}" "${final}/$l"
   done
+  }
 
   cd "${dir64}"
   for f in `find . -type f`; do
@@ -244,7 +249,7 @@ merge_binaries() {
 package_sources() {
   typeset oldpwd="${PWD}"
   typeset tdir
-  typeset gdir="grte-${grte_rpmver}.${grte_rpmrel}"
+  typeset gdir="${GRTEBASENAME}-${grte_rpmver}.${grte_rpmrel}"
   typeset tarfile="${gdir}-src.tar.bz2"
   typeset srcs_to_package="
     argv0switch.c
@@ -253,7 +258,7 @@ package_sources() {
     grte.cfg
     grtev1-gde.spec
     grtev1-headers.spec
-    grtev1-runtimes.spec
+    grtev1-runtime.spec
     grtev1-debuginfo.spec
     grtev1.changelog
     sources
@@ -295,11 +300,12 @@ esac
 
 tb=`readlink -f "${2}"`
 SRC="${absroot}"
-[ -d "${SRC}" -a -f "${SRC}/grtev1-runtimes.spec" ] || {
+[ -d "${SRC}" -a -f "${SRC}/grtev1-runtime.spec" ] || {
   error "must be invoked from GRTE source directory"
   }
 
 GRTEROOT="$1/v${GRTEVERSION}"
+GRTEBASENAME="${GRTE_PACKAGE_PREFIX}$(basename $1)v${GRTEVERSION}"
 BUILDDIR="${tb}"
 PKGROOT="${tb}/final/packaging"
 HDRS24="${tb}/final/headers24"
@@ -308,7 +314,7 @@ STAGING="${tb}/staging"
 RESULTS="${tb}/results"
 objcopy="${PKGROOT}/binutils${GRTEROOT}/bin/objcopy"
 
-RTDIR="${STAGING}/grtev${GRTEVERSION}-runtimes${GRTEROOT}"
+RTDIR="${STAGING}/grtev${GRTEVERSION}-runtime${GRTEROOT}"
 DBGDIR="${STAGING}/grtev${GRTEVERSION}-debuginfo${GRTEROOT}"
 HDRDIR="${STAGING}/grtev${GRTEVERSION}-headers${GRTEROOT}"
 DSDIR="${STAGING}/grtev${GRTEVERSION}-gde${GRTEROOT}"
@@ -362,15 +368,17 @@ mkdir -p "${DSDIR}/sbin"
 mkdir -p "${DSDIR}/etc"
 
 # First is basic glibc stuff
-cp -f "${PKGROOT}/argv0switch" "${RTDIR}/bin"
+[ "${grte_m32}" = "0" ] || cp -f "${PKGROOT}/argv0switch" "${RTDIR}/bin"
 
 ln -s /usr/share/zoneinfo "${RTDIR}/share/zoneinfo"
 ln -s /etc/localtime "${RTDIR}/etc/localtime"
 
+[ "${grte_m32}" = "0" ] || {
 cp -rp "${PKGROOT}/glibc/${glibcrt}/32bit${GRTEROOT}/lib/gconv" "${RTDIR}/lib"
-cp -rp "${PKGROOT}/glibc/${glibcrt}/64bit${GRTEROOT}/lib64/gconv" "${RTDIR}/lib64"
-
 cp -rp "${PKGROOT}/glibc/${glibcrt}/32bit${GRTEROOT}/lib/locale" "${RTDIR}/lib"
+}
+
+cp -rp "${PKGROOT}/glibc/${glibcrt}/64bit${GRTEROOT}/lib64/gconv" "${RTDIR}/lib64"
 cp -rp "${PKGROOT}/glibc/${glibcrt}/64bit${GRTEROOT}/lib64/locale" "${RTDIR}/lib64"
 
 #
@@ -398,7 +406,7 @@ mv -f "${DSDIR}/sbin/"ldconfig* "${RTDIR}/sbin"
 # Remove nscd and nscd_nischeck.
 rm -f "${DSDIR}/sbin/"nscd*
 
-cp -rp "${PKGROOT}/glibc/2.6/32bit${GRTEROOT}/lib/"/*.so* "${rtlibdir}"
+[ "${grte_m32}" = "0" ] || cp -rp "${PKGROOT}/glibc/2.6/32bit${GRTEROOT}/lib/"/*.so* "${rtlibdir}"
 cp -rp "${PKGROOT}/glibc/2.6/64bit${GRTEROOT}/lib64/"/*.so* "${rtlib64dir}"
 
 [ "${grte_support_kernel24}" = "0" ] || {
@@ -413,15 +421,23 @@ cp -rp "${PKGROOT}/glibc/2.6/64bit${GRTEROOT}/lib64/"/*.so* "${rtlib64dir}"
 
 # Must copy 32-bit second so we get the 32-bit version of pt_chown
 cp -rp "${PKGROOT}/glibc/${glibcrt}/64bit${GRTEROOT}/libexec" "${RTDIR}"
+[ "${grte_m32}" = "0" ] || {
 cp -rp "${PKGROOT}/glibc/${glibcrt}/32bit${GRTEROOT}/libexec" "${RTDIR}"
-
 cp -rp "${PKGROOT}/glibc/${glibcrt}/32bit${GRTEROOT}/etc/rpc" "${DSDIR}/etc"
+}
+[ "${grte_m32}" = "0" ] && {
+  touch "${DSDIR}/etc/keep-gde"
+}
 
 # Now the gcc runtimes
-cp -rp "${PKGROOT}/gcc${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
+[ "${grte_m32}" = "0" ] || cp -rp "${PKGROOT}/gcc${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
 cp -rp "${PKGROOT}/gcc${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
 cp -rp "${PKGROOT}/gcc${GRTEROOT}/share" "${RTDIR}"
 rm -fr "${RTDIR}/share/locale"
+# Remove info and man
+rm -rf "${RTDIR}/share/info" "${RTDIR}/share/man"
+# Convert python pretty printer from python2 to python3
+2to3 -w -n ${RTDIR}/share/gcc-*/python/libstdcxx/v6/printers.py
 [ "${grte_java}" = "2" ] && {
   cp -rp "${PKGROOT}/gcc${GRTEROOT}/lib/security" "${RTDIR}/lib"
   cp -rp "${PKGROOT}/gcc${GRTEROOT}/lib/logging.properties" "${RTDIR}/lib"
@@ -440,18 +456,11 @@ else
   rm -fr ${RTDIR}/share/java
 fi
 
-# Now the GMP shared libraries
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
-
-# Now the MPFR shared libraries
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
-
 # Now the zlib shared libraries
-cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
+[ "${grte_m32}" = "0" ] || cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
 cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
 
+[ "${grte_python_support}" = "0" ] || {
 # Now the ncurses shared libraries
 cp -rp "${PKGROOT}/ncurses${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
 cp -rp "${PKGROOT}/ncurses${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
@@ -472,6 +481,7 @@ cp -rp "${PKGROOT}/db${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
 # Now for gdbm
 cp -rp "${PKGROOT}/gdbm${GRTEROOT}/lib"/*.so* "${RTDIR}/lib"
 cp -rp "${PKGROOT}/gdbm${GRTEROOT}/lib64"/*.so* "${RTDIR}/lib64"
+}  # end of python support
 
 tlsdir=
 tls64dir=
@@ -481,6 +491,7 @@ tls64dir=
 }
 
 # Fix the linker scripts to remove absolute paths
+[ "${grte_m32}" = "0" ] || {
 for file in libc.so libpthread.so; do
   for dir in lib ${tlsdir}; do
     sed -e "s,${GRTEROOT}/lib/,,g" "${RTDIR}/${dir}/${file}" \
@@ -489,6 +500,7 @@ for file in libc.so libpthread.so; do
     rm -f "${RTDIR}/${dir}/${file}.jkj"
   done
 done
+}
 
 for file in libc.so libpthread.so; do
   for dir in lib64 ${tls64dir}; do
@@ -505,15 +517,10 @@ done
 # Add empty ld.so.conf and ld.so.cache
 #
 cat > "${RTDIR}/etc/ld.so.conf" <<EOF
-/usr/grte/v1/lib64
-/usr/grte/v1/lib
-/usr/lib64
-/usr/lib32
-/usr/lib
-/lib64
-/lib32
-/lib
+${GRTEROOT}/lib64
+${GRTEROOT}/lib
 EOF
+
 touch "${RTDIR}/etc/ld.so.cache"
 cat > "${RTDIR}/etc/ld.so.nohwcap" <<EOF
 # This file, if present, prevents the RTLD from looking in alternate
@@ -522,15 +529,15 @@ cat > "${RTDIR}/etc/ld.so.nohwcap" <<EOF
 # GRTE ld.so.conf file, which means that without this file, the RTLD will
 # likely load /lib/tls/libc.so.6 (in corp) or /lib/i686/libc.so.6 (in prod).
 # We never want that. We always want GRTE applications to load the GRTE
-# libc (/usr/grte/v1/lib/libc.so.6 for example).
+# libc (${GRTEROOT}/lib/libc.so.6 for example).
 EOF
 
 # Create short symlinks pointing to the GRTE dynamic loaders.  These have
 # shorter lengths then the paths used to access the non-GRTE dynamic loaders
 # (/lib/ld-linux.so.2 and /lib64/ld-linux-x86-64.so.2) to enable binary
 # editing of executables' PT_INTERP headers.
-ln -s /usr/grte/v1/lib/ld-linux.so.2 "${RTDIR}/ld32"
-ln -s /usr/grte/v1/lib64/ld-linux-x86-64.so.2 "${RTDIR}/ld64"
+ln -s ${GRTEROOT}/lib/ld-linux.so.2 "${RTDIR}/ld32"
+ln -s ${GRTEROOT}/lib64/ld-linux-x86-64.so.2 "${RTDIR}/ld64"
 
 #
 # Now come the GRTE headers and static libraries.  These are used by
@@ -542,7 +549,7 @@ cd "${STAGING}"
 # Copy in the 2.6 kernel headers into $GRTEROOT/include
 cp -rp "${HDRS26}/"* "${HDRDIR}/include"
 ls -1d "${HDRDIR}/include/"asm* | sed -e '/asm-i386/d' -e '/asm-x86_64/d' \
-  -e '/asm$/d' | xargs rm -fr
+  -e '/asm$/d' -e '/asm-generic/d' | xargs rm -fr
 
 [ "${grte_support_kernel24}" = "0" ] || {
 # and the 2.4 ones to include/linux-2.4
@@ -564,8 +571,13 @@ merge_headers "${PKGROOT}/glibc/2.6/32bit${GRTEROOT}/include" \
 }
 
 # Copy in the static archives and object files from glibc
+[ "${grte_m32}" = "0" ] || {
 cp -rp "${PKGROOT}/glibc/2.6/32bit${GRTEROOT}/lib"/*.a "${HDRDIR}/lib"
 cp -rp "${PKGROOT}/glibc/2.6/32bit${GRTEROOT}/lib"/*.o "${HDRDIR}/lib"
+}
+[ "${grte_m32}" = "0" ] && {
+touch "${HDRDIR}/lib/keep"
+}
 cp -rp "${PKGROOT}/glibc/2.6/64bit${GRTEROOT}/lib64"/*.a "${HDRDIR}/lib64"
 cp -rp "${PKGROOT}/glibc/2.6/64bit${GRTEROOT}/lib64"/*.o "${HDRDIR}/lib64"
 
@@ -588,12 +600,13 @@ cp -rp "${PKGROOT}/glibc/2.6/64bit${GRTEROOT}/lib64"/*.o "${HDRDIR}/lib64"
 #
 
 # Copy in zlib
-cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib"/*.a "${HDRDIR}/lib"
+[ "${grte_m32}" = "0" ] || cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib"/*.a "${HDRDIR}/lib"
 cp -rp "${PKGROOT}/zlib${GRTEROOT}/lib64"/*.a "${HDRDIR}/lib64"
 merge_headers "${PKGROOT}/zlib${GRTEROOT}/include32" \
   "${PKGROOT}/zlib${GRTEROOT}/include64" \
   "${HDRDIR}/include"
 
+[ "${grte_python_support}" = "0" ] || {
 # Copy in ncurses
 cp -rp "${PKGROOT}/ncurses${GRTEROOT}/lib"/*.a "${HDRDIR}/lib"
 cp -rp "${PKGROOT}/ncurses${GRTEROOT}/lib64"/*.a "${HDRDIR}/lib64"
@@ -621,6 +634,7 @@ cp -rp "${PKGROOT}/gdbm${GRTEROOT}/lib64"/*.a "${HDRDIR}/lib64"
 merge_headers "${PKGROOT}/gdbm${GRTEROOT}/include32" \
   "${PKGROOT}/gdbm${GRTEROOT}/include64" \
   "${HDRDIR}/include"
+}
 
 #
 # Now comes the GRTE development environment, the portion that gets installed
@@ -646,7 +660,6 @@ cp -rp "${PKGROOT}/glibc/${glibcrt}/64bit${GRTEROOT}/share/i18n" "${DSDIR}/share
   rm -fr "${DSDIR}/lib/security" "${DSDIR}/lib64/security"
   rm -f "${DSDIR}/lib/logging.properties" "${DSDIR}/lib64/logging.properties"
 }
-
 rmjava='sed -e /libgcj.*/d'
 [ "${grte_java}" = "2" ] && {
   rmjava="cat"
@@ -673,24 +686,7 @@ cp -rp "${PKGROOT}/binutils${GRTEROOT}/x86_64-linux-gnu" "${DSDIR}"
   cp -rp "${PKGROOT}/infozip${GRTEROOT}/bin" "${DSDIR}"
 }
 
-# Copy in GMP
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib"/*.a "${DSDIR}/lib"
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib"/*.la "${DSDIR}/lib"
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib64"/*.a "${DSDIR}/lib64"
-cp -rp "${PKGROOT}/gmp${GRTEROOT}/lib64"/*.la "${DSDIR}/lib64"
-merge_headers "${PKGROOT}/gmp${GRTEROOT}/include32" \
-  "${PKGROOT}/gmp${GRTEROOT}/include64" \
-  "${DSDIR}/include"
-
-# Copy in MPFR
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib"/*.a "${DSDIR}/lib"
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib"/*.la "${DSDIR}/lib"
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib64"/*.a "${DSDIR}/lib64"
-cp -rp "${PKGROOT}/mpfr${GRTEROOT}/lib64"/*.la "${DSDIR}/lib64"
-merge_headers "${PKGROOT}/mpfr${GRTEROOT}/include32" \
-  "${PKGROOT}/mpfr${GRTEROOT}/include64" \
-  "${DSDIR}/include"
-
+[ "${grte_python_support}" = "0" ] || {
 # Copy in BerkelyDB
 cp -rp "${PKGROOT}/db${GRTEROOT}/lib"/*.a "${DSDIR}/lib"
 cp -rp "${PKGROOT}/db${GRTEROOT}/lib64"/*.a "${DSDIR}/lib64"
@@ -699,21 +695,16 @@ merge_headers "${PKGROOT}/db${GRTEROOT}/include32" \
   "${DSDIR}/include"
 merge_binaries "${PKGROOT}/db${GRTEROOT}/bin32" \
   "${PKGROOT}/db${GRTEROOT}/bin64" "${DSDIR}/bin"
+}
 
 # Fix libtool .la files so they don't contain directories
 # inappropriate for the given library type (32-bit / 64-bit).
 #
 # This is gross, but better than trying to fix/upgrade libtool
 # in all the sources that would need it.
-lafiles_32bit="
-  ${DSDIR}/lib/gcc/x86_64-linux-gnu/4.2.2/32/libgfortranbegin.la
-  ${DSDIR}/lib/libgfortran.la
-  ${DSDIR}/lib/libgmp.la
-  ${DSDIR}/lib/libgomp.la
-  ${DSDIR}/lib/libmpfr.la
+[ "${grte_m32}" = "0" ] || lafiles_32bit="
   ${DSDIR}/lib/libmudflap.la
   ${DSDIR}/lib/libmudflapth.la
-  ${DSDIR}/lib/libobjc.la
   ${DSDIR}/lib/libssp.la
   ${DSDIR}/lib/libssp_nonshared.la
   ${DSDIR}/lib/libstdc++.la
@@ -721,19 +712,12 @@ lafiles_32bit="
 "
 lafiles_64bit="
   ${DSDIR}/lib64/libbfd.la
-  ${DSDIR}/lib64/libgfortran.la
-  ${DSDIR}/lib64/libgmp.la
   ${DSDIR}/lib64/libgomp.la
-  ${DSDIR}/lib64/libmpfr.la
-  ${DSDIR}/lib64/libmudflap.la
-  ${DSDIR}/lib64/libmudflapth.la
-  ${DSDIR}/lib64/libobjc.la
   ${DSDIR}/lib64/libopcodes.la
   ${DSDIR}/lib64/libssp.la
   ${DSDIR}/lib64/libssp_nonshared.la
   ${DSDIR}/lib64/libstdc++.la
   ${DSDIR}/lib64/libsupc++.la
-  ${DSDIR}/lib/gcc/x86_64-linux-gnu/4.2.2/libgfortranbegin.la
 "
 
 # Get rid of references to the build directory.
@@ -751,9 +735,9 @@ done
 # (Not all will be used, but better safe than sorry.)
 for file in $lafiles_32bit; do
   sed \
-    -e "s;-L/usr/grte/v1/lib/../lib64\([ ']\);-L/usr/grte/v1/lib\1;g" \
-    -e "s;-L/usr/grte/v1/lib64\([ ']\);-L/usr/grte/v1/lib\1;g" \
-    -e "s;-L/usr/grte/v1/lib64/../lib64\([ ']\);-L/usr/grte/v1/lib\1;g" \
+    -e "s;-L${GRTEROOT}/lib/../lib64\([ ']\);-L${GRTEROOT}/lib\1;g" \
+    -e "s;-L${GRTEROOT}/lib64\([ ']\);-L${GRTEROOT}/lib\1;g" \
+    -e "s;-L${GRTEROOT}/lib64/../lib64\([ ']\);-L${GRTEROOT}/lib\1;g" \
     -i $file
 done
 
@@ -766,12 +750,16 @@ done
 # (Not all will be used, but better safe than sorry.)
 for file in $lafiles_64bit; do
   sed \
-    -e "s;-L/usr/grte/v1/lib\([ ']\);-L/usr/grte/v1/lib64\1;g" \
-    -e "s;-L/usr/grte/v1/lib/../lib\([ ']\);-L/usr/grte/v1/lib64\1;g" \
-    -e "s;-L/usr/grte/v1/lib64/../lib\([ ']\);-L/usr/grte/v1/lib64\1;g" \
+    -e "s;-L${GRTEROOT}/lib\([ ']\);-L${GRTEROOT}/lib64\1;g" \
+    -e "s;-L${GRTEROOT}/lib/../lib\([ ']\);-L${GRTEROOT}/lib64\1;g" \
+    -e "s;-L${GRTEROOT}/lib64/../lib\([ ']\);-L${GRTEROOT}/lib64\1;g" \
     -i $file
 done
 
+# Remove info and man
+rm -fr "${DSDIR}/share/info" "${DSDIR}/share/man"
+ls "${DSDIR}/share"/gcc-4.*
+rm -fr "${DSDIR}/share"/gcc-4.*
 
 #
 # Ensure that we convert any identical files in the runtimes to symlinks.
@@ -786,7 +774,7 @@ link_identical() {
    else { if (inode != $3) { print "rm -f ." $2 "; ln -s " file " ." $2; } } }' | sh
 }
 
-cd "${STAGING}/grtev${GRTEVERSION}-runtimes"; link_identical
+cd "${STAGING}/grtev${GRTEVERSION}-runtime"; link_identical
 
 
 # Strip debug info from all of the binaries in the runtimes and
@@ -857,6 +845,7 @@ cp -rp "${PKGROOT}/debug-src${GRTEROOT}/debug-src" "${DBGDIR}/debug-src"
 
 } # End of if SKIP_PREP wasn't set
 
+[ "${grte_m32}" = "0" ] && rpm_arch=amd64 || rpm_arch=i386
 #
 # The following function duplicated (with a slight edit) from the crosstool
 # rpm_to_deb script created by Ollie Wild (aaw). All credit to him.
@@ -878,11 +867,11 @@ convert_rpm() {
   # Set the environment variable EMAIL before we make any calls to alien,
   # otherwise it will make a guess at the email address and get it wrong.
   [ -z "${EMAIL}" ] && {
-    EMAIL="${LOGNAME}@google.com"
+    EMAIL="foo@bar.io"
     export EMAIL
   }
 
-  rpm="${1}-${grte_rpmver}-${grte_rpmrel}.i386.rpm"
+  rpm="${1}-${grte_rpmver}-${grte_rpmrel}.${rpm_arch}.rpm"
   echo "Converting ${rpm}"
 
   # Grab package dependencies.  Ignore specific files or rpmlib features.
@@ -896,10 +885,7 @@ convert_rpm() {
   # set in the original RPM.
   maintainer="$(rpm -q --queryformat "%{PACKAGER}" -p "${rpm}")"
   [ "${maintainer}" = "(none)" ] && {
-    typeset fullname
-    fullname=$(ldapsearch -x -LLL -b 'ou=People,dc=google,dc=com' \
-      "uid=$LOGNAME" cn|grep '^cn'|colrm 1 4)
-    maintainer="${fullname} <${LOGNAME}@google.com>"
+    maintainer="Release Engineer <${EMAIL}>"
   }
 
   # Get the RPM package group and convert it into a Debian section
@@ -952,7 +938,7 @@ Standards-Version: 3.8.0' \
   #
   tmprules=$(mktemp -t grtepackage.XXXXXX)
   mv -f "${dir}/debian/rules" "${tmprules}"
-  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.3.6.so/' \
+  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.19.so/' \
       -e '/dh_shlibdeps/d' \
       -e '/dh_clean/ s/-k -d//' \
       "${tmprules}" > "${dir}/debian/rules"
@@ -968,7 +954,7 @@ ${1} (${grte_rpmver}-${grte_rpmrel}) experimental; urgency=low
 
   * Converted from .rpm format to .deb by alien / grte-package
 
- -- c-compiler-team <c-compiler-team@google.com>  ${today}
+ -- Release Engineer <$EMAIL>  ${today}
 EOF
 
   # Build the source package.
@@ -980,6 +966,7 @@ EOF
   fakeroot dpkg-buildpackage -S -us -uc
   cd "${opwd}"
 
+  [ "${grte_m32}" = "0" ] || {
   # Build the i386 package
   mv -f "${dir}/debian/control" "${dir}/debian/control.cvt"
   sed -e 's/^\(Architecture:\).*$/\1 i386/' \
@@ -988,6 +975,7 @@ EOF
   cd "${dir}"
   fakeroot dpkg-buildpackage -B -uc -ai386
   cd "${opwd}"
+  }
 
   # Build the amd64 package
   mv -f "${dir}/debian/control" "${dir}/debian/control.cvt"
@@ -1007,39 +995,54 @@ mkdir "${RESULTS}/debs" "${RESULTS}/rpms" "${RESULTS}/sdebs" \
       "${RESULTS}/sources"
 
 # Create each RPM and the corresponding debs and sdeb.
-for package in grte-runtimes grte-headers grte-gde grte-debuginfo; do
+for package in grte-runtime grte-headers grte-gde grte-debuginfo; do
   specfile=`echo $package | sed -e 's,grte,grtev1,'`.spec
-
+  buildroot=`echo $package | sed -e 's,grte,grtev1,'`
+  package_name=$(echo $package | sed -e "s,grte,${GRTEBASENAME},")
+  # --define "_buildrootdir ${STAGING}/grtev${GRTEVERSION}-${package}"
   cd "${STAGING}"
   ${rpmbuild} \
     --define "_hash_empty_files 1" \
+    --define "EMAIL ${EMAIL}" \
     --define "GRTEBUILD ${STAGING}" \
+    --define "_topdir ${STAGING}" \
+    --define "_rpmtopdir ${STAGING}" \
+    --define "_builddir ${STAGING}/${buildroot}" \
+    --define "buildroot ${STAGING}/${buildroot}" \
+    --define "grte_basename ${GRTEBASENAME}" \
+    --define "grte_root ${GRTEROOT}" \
     --define "grte_version ${GRTEVERSION}" \
+    --define "grte_gcc_version ${gcc_version}" \
+    --define "grte_glibc_version ${glibc_version}" \
     --define "grte_rpmver ${grte_rpmver}" \
     --define "grte_rpmrel ${grte_rpmrel}" \
     --define "grte_changelog ${SRC}/grtev1.changelog" \
-    --dbpath /dev/null --target=i386 -bb "${SRC}/${specfile}"
-  convert_rpm "${package}"
+    --dbpath /dev/null --target=${rpm_arch} -bb "${SRC}/${specfile}"
+  convert_rpm "${package_name}"
 
-  mv "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}_amd64.deb" \
-     "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}_amd64.changes" \
-     "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}_i386.deb" \
-     "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}_i386.changes" \
+  mv "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}_amd64.deb" \
+     "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}_amd64.changes" \
      "${RESULTS}/debs"
 
-  mv "${STAGING}/${package}-${grte_rpmver}-${grte_rpmrel}.i386.rpm" \
+  [ "${grte_m32}" = "0" ] || {
+  mv "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}_i386.deb" \
+     "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}_i386.changes" \
+     "${RESULTS}/debs"
+  }
+
+  mv "${STAGING}/${package_name}-${grte_rpmver}-${grte_rpmrel}.${rpm_arch}.rpm" \
      "${RESULTS}/rpms"
 
-  mv "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}.dsc" \
-     "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}.tar.gz" \
-     "${STAGING}/${package}_${grte_rpmver}-${grte_rpmrel}_source.changes" \
+  mv "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}.dsc" \
+     "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}.tar.gz" \
+     "${STAGING}/${package_name}_${grte_rpmver}-${grte_rpmrel}_source.changes" \
      "${RESULTS}/sdebs"
 done
 
 # Package up the sources used to build the release.
 cd "${STAGING}"
 package_sources
-mv "${STAGING}/grte-${grte_rpmver}.${grte_rpmrel}-src.tar.bz2" \
+mv "${STAGING}/${GRTEBASENAME}-${grte_rpmver}.${grte_rpmrel}-src.tar.bz2" \
    "${RESULTS}/sources"
 
 # We're done!
