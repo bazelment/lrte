@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/bash
 
 #
 # This script builds the host portion of the Google Runtime Environment
@@ -114,7 +114,7 @@ arch64build="x86_64-build-linux-gnu"
 #
 # Set the final language list
 #
-languages="c,c++,objc,fortran"
+languages="c,c++"
 
 [ "${grte_java}" = "0" ] || languages="${languages},java"
 
@@ -323,6 +323,11 @@ glibcdir="2.6"
   glibcdir="2.4"
 }
 
+xtra_gcc_cfg=""
+[ "${grte_m32}" = "0" ] && {
+    xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
+}
+
 #
 # The first order of business is to compile a binutils/gcc combination
 # for x86_64 using whatever underlying host compiler is present. This is
@@ -406,7 +411,6 @@ glibcdir="2.6"
     --disable-profile \
     --disable-debug \
     --without-gd \
-    --enable-add-ons=linuxthreads \
     --with-tls \
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
@@ -431,7 +435,7 @@ glibcdir="2.6"
   CC=gcc "${SRC}/gcc-${gcc_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
     --target="${arch64}" \
-    --enable-languages=c \
+    --enable-languages=c,c++ \
     --disable-nls \
     --disable-shared \
     --disable-threads \
@@ -439,8 +443,8 @@ glibcdir="2.6"
     --with-sysroot="${SYSROOT}" \
     --with-headers="${HDRDIR}" \
     || error "gcc stage1 configuration failed"
-  make $JFLAGS all-gcc || error "gcc stage1 build failed"
-  make install-gcc || error "gcc stage1 install failed"
+  make $JFLAGS all-gcc all-target-libgcc || error "gcc stage1 build failed"
+  make install-gcc install-target-libgcc || error "gcc stage1 install failed"
 
   #
   # Now for the full glibc build, which will also result in things like
@@ -472,9 +476,9 @@ glibcdir="2.6"
     --with-__thread \
     ${xtra_glibc32_cfg} \
     || error "glibc 32-bit stage1 configure failed"
-  make lib PARALLELMFLAGS="${JFLAGS}" \
+  make PARALLELMFLAGS="${JFLAGS}" \
     || error "glibc 32-bit stage1 build failed"
-  make install-lib-all install-headers install_root="${SYSROOT}" \
+  make install install_root="${SYSROOT}" \
     || error "glibc 32-bit stage1 install failed"
 
   cd "${STAGE1ROOT}"
@@ -502,9 +506,9 @@ glibcdir="2.6"
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
     || error "glibc 64-bit stage1 configure failed"
-  make lib PARALLELMFLAGS="${JFLAGS}" \
+  make PARALLELMFLAGS="${JFLAGS}" \
     || error "glibc 64-bit stage1 build failed"
-  make install-lib-all install-headers install_root="${SYSROOT}" \
+  make install install_root="${SYSROOT}" \
     || error "glibc 64-bit stage1 install failed"
 
   #
@@ -521,7 +525,7 @@ glibcdir="2.6"
   CC=gcc "${SRC}/gcc-${gcc_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
     --target="${arch64}" \
-    --enable-languages=c \
+    --enable-languages=c,c++ \
     --disable-nls \
     --enable-__cxa_atexit \
     --with-sysroot="${SYSROOT}" \
@@ -626,6 +630,7 @@ glibcdir="2.6"
   # the final build stage, so we map filename prefixes in the debug info.
   #
   cd "${STAGE2ROOT}"
+  [ "${grte_m32}" = "0" ] || {
   rm -fr glibc-build32
   mkdir glibc-build32
   cd glibc-build32
@@ -660,6 +665,7 @@ glibcdir="2.6"
     || error "glibc 32-bit stage2 build failed"
   make AR="${STAGE1AR}" RANLIB="${STAGE1RANLIB}" install  \
     || error "glibc 32-bit stage2 install failed"
+  } # Enf of if we are not building 32bit.
 
   cd "${STAGE2ROOT}"
   rm -fr glibc-build64
@@ -745,6 +751,11 @@ glibcdir="2.6"
   #
   PATH="${STAGE2ROOT}/root/bin:${STAGE1ROOT}/root/bin:${origpath}"
   cd "${STAGE2ROOT}"
+  # --with-startfile-prefix-1="${STAGE2ROOT}/root/lib"
+  #
+  # with-startfile-prefix-1 is unsupported anymore, so we have to
+  # patch the Makefile.in
+  sed -e "s:^DRIVER_DEFINES = :DRIVER_DEFINES = -DSTANDARD_STARTFILE_PREFIX_1=\\\\\\\"${STAGE2ROOT}/root/lib64/\\\\\\\" -DSTANDARD_STARTFILE_PREFIX_2=\\\\\\\"${STAGE2ROOT}/root/lib/\\\\\\\" :" ${SRC}/gcc-Makefile.in.orig > ${SRC}/gcc-${gcc_version}/gcc/Makefile.in
   rm -fr gcc-build
   mkdir gcc-build
   cd gcc-build
@@ -765,10 +776,9 @@ glibcdir="2.6"
     --enable-shared \
     --enable-__cxa_atexit \
     --with-native-system-header-dir="${STAGE2ROOT}/root/include" \
-    --with-startfile-prefix-1="${STAGE2ROOT}/root/lib" \
-    --with-startfile-prefix-2="${STAGE2ROOT}/root/lib" \
     --with-local-prefix="${GRTEROOT}/local" \
     --with-debug-prefix-map="${DEBUG_PREFIX_MAPPINGS}" \
+    ${xtra_gcc_cfg} \
     || error "gcc stage2 configuration failed"
   make $JFLAGS \
     BOOT_CFLAGS="-g -O2 ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
@@ -884,7 +894,7 @@ glibcdir="2.6"
       --cache-file=config.cache \
       --without-cvs \
       --without-gd \
-      --enable-add-ons=linuxthreads,libidn \
+      --enable-add-ons=libidn \
       --enable-static-nss \
       --with-tls \
       --with-__thread \
@@ -904,6 +914,7 @@ glibcdir="2.6"
   } # End of if we require 2.4 kernel support
 
   cd "${FINALROOT}"
+  [ "${grte_m32}" = "0" ] || {
   rm -fr glibc32-26-build
   mkdir glibc32-26-build
   cd glibc32-26-build
@@ -950,6 +961,7 @@ glibcdir="2.6"
   make localedata/install-locales \
     SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
     || error "glibc 32-bit (2.6) final in-situ localedata install failed"
+  } # Enf of if we are not building 32bit.
 
   #
   # And now the 64-bit versions of glibc
@@ -980,7 +992,7 @@ glibcdir="2.6"
       --cache-file=config.cache \
       --without-cvs \
       --without-gd \
-      --enable-add-ons=linuxthreads,libidn \
+      --enable-add-ons=libidn \
       --enable-static-nss \
       --with-tls \
       --with-__thread \
@@ -1097,6 +1109,7 @@ glibcdir="2.6"
   mkdir -p "${idir}/lib" "${idir}/lib64"
   mkdir -p "${idir}/include32" "${idir}/include64"
 
+  [ "${grte_m32}" = "0" ] || {
   cd "${FINALROOT}"
   rm -fr zlib32-build
   mkdir zlib32-build
@@ -1112,17 +1125,16 @@ glibcdir="2.6"
   CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
   ./configure --shared || error "zlib 32-bit coniguration failed"
   make || error "zlib 32-bit shared compile failed"
-  cp libz.so.1.2.3.3 "${GRTEROOT}/lib/libz.so.1.2.3.3"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib/libz.so"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib/libz.so.1"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib/libz.so.1.2.3"
-  cp libz.so.1.2.3.3 "${idir}/lib/libz.so.1.2.3.3"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib/libz.so"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib/libz.so.1"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib/libz.so.1.2.3"
+  cp libz.so.1.2.8 "${GRTEROOT}/lib/libz.so.1.2.8"
+  ln -fs libz.so.1.2.8 "${GRTEROOT}/lib/libz.so"
+  ln -fs libz.so.1.2.8 "${GRTEROOT}/lib/libz.so.1"
+  cp libz.so.1.2.8 "${idir}/lib/libz.so.1.2.8"
+  ln -fs libz.so.1.2.8 "${idir}/lib/libz.so"
+  ln -fs libz.so.1.2.8 "${idir}/lib/libz.so.1"
   cp libz.a "${GRTEROOT}/lib/libz.a"
   cp libz.a "${idir}/lib/libz.a"
-  cp zlib.h zconf.h zlibdefs.h "${idir}/include32"
+  cp zlib.h zconf.h "${idir}/include32"
+  }  # end 32bit zlib
 
   # Now the 64-bit version of zlib
   cd "${FINALROOT}"
@@ -1140,18 +1152,16 @@ glibcdir="2.6"
   CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
   ./configure --shared || error "64-bit zlib configuration failed"
   make || error "zlib 64-bit shared compile failed"
-  cp libz.so.1.2.3.3 "${GRTEROOT}/lib64/libz.so.1.2.3.3"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib64/libz.so"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib64/libz.so.1"
-  ln -fs libz.so.1.2.3.3 "${GRTEROOT}/lib64/libz.so.1.2.3"
-  cp zlib.h zconf.h zlibdefs.h "${GRTEROOT}/include"
-  cp libz.so.1.2.3.3 "${idir}/lib64/libz.so.1.2.3.3"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib64/libz.so"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib64/libz.so.1"
-  ln -fs libz.so.1.2.3.3 "${idir}/lib64/libz.so.1.2.3"
+  cp libz.so.1.2.8 "${GRTEROOT}/lib64/libz.so.1.2.8"
+  ln -fs libz.so.1.2.8 "${GRTEROOT}/lib64/libz.so"
+  ln -fs libz.so.1.2.8 "${GRTEROOT}/lib64/libz.so.1"
+  cp zlib.h zconf.h "${GRTEROOT}/include"
+  cp libz.so.1.2.8 "${idir}/lib64/libz.so.1.2.8"
+  ln -fs libz.so.1.2.8 "${idir}/lib64/libz.so"
+  ln -fs libz.so.1.2.8 "${idir}/lib64/libz.so.1"
   cp libz.a "${GRTEROOT}/lib64/libz.a"
   cp libz.a "${idir}/lib64/libz.a"
-  cp zlib.h zconf.h zlibdefs.h "${idir}/include64"
+  cp zlib.h zconf.h "${idir}/include64"
 
   #
   # Before we can compile the full GCC suite, we need to compile
@@ -1201,136 +1211,7 @@ glibcdir="2.6"
   cp zip zipnote zipsplit zipcloak "${idir}/bin"
   } # End of if we are not doing Java
 
-  #
-  # Now do GMP
-  #
-  idir="${FINALROOT}/packaging/gmp"
-  rm -fr "${idir}"
-  mkdir -p "${idir}"
-
-  cd "${FINALROOT}"
-  rm -fr gmp-build32
-  mkdir gmp-build32
-  cd gmp-build32
-  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
-  LD="${STAGE2LD}" \
-  AS="${STAGE2AS}" \
-  NM="${STAGE2NM}" \
-  AR="${STAGE2AR}" \
-  OBJDUMP="${STAGE2OBJDUMP}" \
-  RANLIB="${STAGE2RANLIB}" \
-  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
-  CFLAGS="-O3 -g ${lfsopts}" \
-  "${SRC}/gmp-${gmp_version}/configure" \
-    --prefix="${GRTEROOT}" \
-    --host="${arch32}" \
-    --build="${arch32}" \
-    --target="${arch32}" \
-    --libdir="${GRTEROOT}/lib" \
-    --enable-shared \
-    || error "gmp 32-bit configuration failed"
-  make $JFLAGS || error "gmp 32-bit build failed"
-  make install DESTDIR="${idir}" \
-    || error "gmp 32-bit install failed"
-  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
-  make install || error "gmp 32-bit in-situ install failed"
-
-  cd "${FINALROOT}"
-  rm -fr gmp-build64
-  mkdir gmp-build64
-  cd gmp-build64
-  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
-  LD="${STAGE2LD}" \
-  AS="${STAGE2AS}" \
-  NM="${STAGE2NM}" \
-  AR="${STAGE2AR}" \
-  OBJDUMP="${STAGE2OBJDUMP}" \
-  RANLIB="${STAGE2RANLIB}" \
-  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
-  CFLAGS="-O3 -g ${lfsopts}" \
-  "${SRC}/gmp-${gmp_version}/configure" \
-    --prefix="${GRTEROOT}" \
-    --host="${arch64}" \
-    --build="${arch64}" \
-    --target="${arch64}" \
-    --libdir="${GRTEROOT}/lib64" \
-    --enable-shared \
-    || error "gmp 64-bit configuration failed"
-  make $JFLAGS || error "gmp 64-bit build failed"
-  make install DESTDIR="${idir}" \
-    || error "gmp 64-bit install failed"
-  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
-  make install || error "gmp 64-bit in-situ install failed"
-
-  #
-  # Next is MPFR, used by Fortran
-  #
-  idir="${FINALROOT}/packaging/mpfr"
-  rm -fr "${idir}"
-  mkdir -p "${idir}"
-
-  cd "${FINALROOT}"
-  rm -fr mpfr-build32
-  mkdir mpfr-build32
-  cd mpfr-build32
-  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
-  LD="${STAGE2LD}" \
-  AS="${STAGE2AS}" \
-  NM="${STAGE2NM}" \
-  AR="${STAGE2AR}" \
-  OBJDUMP="${STAGE2OBJDUMP}" \
-  RANLIB="${STAGE2RANLIB}" \
-  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
-  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/mpfr-${mpfr_version}" \
-  "${SRC}/mpfr-${mpfr_version}/configure" \
-    --prefix="${GRTEROOT}" \
-    --host="${arch32}" \
-    --build="${arch32}" \
-    --target="${arch32}" \
-    --libdir="${GRTEROOT}/lib" \
-    --with-gmp-build="${FINALROOT}/gmp-build32" \
-    --enable-thread-safe \
-    --enable-shared \
-    || error "mpfr 32-bit configuration failed"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" $JFLAGS \
-    || error "mpfr 32-bit build failed"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install DESTDIR="${idir}" \
-    || error "mpfr 32-bit install failed"
-  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
-    || error "mpfr 32-bit in-situ install failed"
-
-  cd "${FINALROOT}"
-  rm -fr mpfr-build64
-  mkdir mpfr-build64
-  cd mpfr-build64
-  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
-  LD="${STAGE2LD}" \
-  AS="${STAGE2AS}" \
-  NM="${STAGE2NM}" \
-  AR="${STAGE2AR}" \
-  OBJDUMP="${STAGE2OBJDUMP}" \
-  RANLIB="${STAGE2RANLIB}" \
-  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
-  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/mpfr-${mpfr_version}" \
-  "${SRC}/mpfr-${mpfr_version}/configure" \
-    --prefix="${GRTEROOT}" \
-    --host="${arch64}" \
-    --build="${arch64}" \
-    --target="${arch64}" \
-    --libdir="${GRTEROOT}/lib64" \
-    --with-gmp-build="${FINALROOT}/gmp-build64" \
-    --enable-thread-safe \
-    --enable-shared \
-    || error "mpfr 64-bit configuration failed"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" $JFLAGS \
-    || error "mpfr 64-bit build failed"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install DESTDIR="${idir}" \
-    || error "mpfr 64-bit install failed"
-  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
-  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
-    || error "mpfr 64-bit in-situ install failed"
-
+  [ "${grte_python_support}" = "0" ] || {  
   #
   # ncurses is used by Python for its interactive mode. There are
   # two ways that ncurses can be compiled: one with wide character
@@ -1838,6 +1719,7 @@ glibcdir="2.6"
   mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
   make install || error "gdbm 64-bit in-situ install failed"
   make install-compat || error "gdbm 64-bit in-situ install failed"
+  } # End of if we are not building python support.
 
   #
   # Do the final full-scale gcc build
@@ -1849,6 +1731,11 @@ glibcdir="2.6"
   #
   PATH="${GRTEROOT}/bin:${STAGE2ROOT}/root/bin:${origpath}"
   cd "${FINALROOT}"
+  # --with-startfile-prefix-1="${STAGE2ROOT}/root/lib"
+  #
+  # with-startfile-prefix-1 is unsupported anymore, so we have to
+  # patch the Makefile.in
+  sed -e "s:^DRIVER_DEFINES = :DRIVER_DEFINES = -DSTANDARD_STARTFILE_PREFIX_1=\\\\\\\"${GRTEROOT}/lib64/\\\\\\\" -DSTANDARD_STARTFILE_PREFIX_2=\\\\\\\"${GRTEROOT}/lib/\\\\\\\" :" ${SRC}/gcc-Makefile.in.orig > ${SRC}/gcc-${gcc_version}/gcc/Makefile.in
   rm -fr gcc-build
   mkdir gcc-build
   cd gcc-build
@@ -1869,10 +1756,9 @@ glibcdir="2.6"
     --enable-shared \
     --enable-__cxa_atexit \
     --with-native-system-header-dir="${GRTEROOT}/include" \
-    --with-startfile-prefix-1="${GRTEROOT}/lib" \
-    --with-startfile-prefix-2="${GRTEROOT}/lib" \
     --with-local-prefix="${GRTEROOT}/local" \
     --with-debug-prefix-map="${DEBUG_PREFIX_MAPPINGS}" \
+    ${xtra_gcc_cfg} \
     || error "gcc final configuration failed"
   make $JFLAGS \
     BOOT_CFLAGS="-g -O2 ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
@@ -1888,12 +1774,14 @@ glibcdir="2.6"
   #
   # Build 32-bit argv0 switcher
   #
+  [ "${grte_m32}" = "0" ] || {
   ${STAGE2CC32} -g \
     -isystem "${GRTEROOT}/include" \
     -L"${GRTEROOT}/lib" \
     -Wl,-I,"${GRTEROOT}/lib/ld-linux.so.2" \
     -o "${FINALROOT}/packaging/argv0switch" \
     "${SRC}/argv0switch.c"
+  } # 32bit argv0 switcher.
 
   #
   # Copy appropriate files to debug-src directory
@@ -1909,6 +1797,7 @@ glibcdir="2.6"
          \( -type d -name '*java*' -prune \) -o \
          \( -type d -name 'test*' -prune \) -o \
          \( -type d -name 'docs' -prune \) -o \
+         \( -type d -name 'linux-${headers26}' -prune \) -o \
          -print |
     cpio -pdm "${idir}/${GRTEROOT}/debug-src/src"
   cp "${absroot}/argv0switch.c" "${idir}/${GRTEROOT}/debug-src/src"
@@ -1924,6 +1813,7 @@ glibcdir="2.6"
   cd "${STAGE2ROOT}"
   find $build_directories \
        \( -type d -name .libs \) -prune -o \
+       \( -name "*.la" \) -prune -o \
        \( -name "*.a" \) -prune -o \
        \( -name "*.so" \) -prune -o \
        \( -name "*.so.*" \) -prune -o \
@@ -1934,8 +1824,7 @@ glibcdir="2.6"
        \( -type f -name "*.inc" \) -print -o \
        \( -type f -iname "*.s" \) -print -o \
        \( -type d -name gcc \) -print -o \
-       \( -type d -name libgcc \) -print -o \
-       -type l -print | \
+       \( -type d -name libgcc \) -print | \
     cpio -pdLm "${idir}/${GRTEROOT}/debug-src/stage2"
   # We need to copy all files under the stage2 compiler root, too.
   find root/include \
@@ -1955,11 +1844,7 @@ glibcdir="2.6"
     gdbm-build64
     glibc32-26-build
     glibc64-26-build
-    gmp-build32
-    gmp-build64
     headers26
-    mpfr-build32
-    mpfr-build64
     ncurses-build32
     ncurses-build64
     ncursesw-build32
@@ -1972,6 +1857,7 @@ glibcdir="2.6"
   cd "${FINALROOT}"
   find $build_directories \
        \( -type d -name .libs \) -prune -o \
+       \( -name "*.la" \) -prune -o \
        \( -name "*.a" \) -prune -o \
        \( -name "*.so" \) -prune -o \
        \( -name "*.so.*" \) -prune -o \
@@ -1982,21 +1868,12 @@ glibcdir="2.6"
        \( -type f -name "*.inc" \) -print -o \
        \( -type f -iname "*.s" \) -print -o \
        \( -type d -name gcc \) -print -o \
-       \( -type d -name libgcc \) -print -o \
-       -type l -print | \
+       \( -type d -name libgcc \) -print  | \
     cpio -pdLm "${idir}/${GRTEROOT}/debug-src/final"
 
   # We need to make some additional empty directories so that paths using
   # .. will work.
   for subdir in \
-      gmp-build32/mpf \
-      gmp-build32/mpq \
-      gmp-build32/printf \
-      gmp-build32/scanf \
-      gmp-build64/mpf \
-      gmp-build64/mpq \
-      gmp-build64/printf \
-      gmp-build64/scanf \
       ncurses-build32/form \
       ncurses-build32/menu \
       ncurses-build32/panel \
@@ -2010,7 +1887,7 @@ glibcdir="2.6"
       ncursesw-build64/menu \
       ncursesw-build64/panel \
   ; do
-    mkdir "${idir}/${GRTEROOT}/debug-src/final/$subdir"
+    mkdir -p "${idir}/${GRTEROOT}/debug-src/final/$subdir"
   done
 
   echo "Fixing permissions on debug-src."
