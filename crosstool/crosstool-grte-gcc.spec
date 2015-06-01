@@ -6,7 +6,7 @@ Version: 1.0
 Release: 8
 License: GPL/LGPL
 Group: Development/Languages
-Packager: Release Engineer <%{EMAIL}>
+Packager: Release Engineer <%{maintainer_email}>
 AutoReqProv: no
 Requires: %{grte_basename}-runtime %{grte_basename}-headers
 
@@ -131,7 +131,6 @@ CFLAGS=$CFLAGS \
 CXXFLAGS=$CFLAGS \
 LDFLAGS=$LDFLAGS \
 LD_FOR_TARGET=${PREFIX}/bin/ld \
-
 $WORK_DIR/gcc-src/configure \
     --disable-nls --enable-threads=posix \
     --enable-symvers=gnu --enable-__cxa_atexit \

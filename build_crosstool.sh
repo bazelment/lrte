@@ -37,7 +37,7 @@ export PARALLELMFLAGS="${JFLAGS:-j8}"
     export EMAIL
 }
 
-# Install the packages for GRTE, mostly GDE
+Install the packages for GRTE, mostly GDE
 for pkg in runtime headers gde; do
     dpkg -i ${DEB_DIR}/${GRTEBASENAME}-${pkg}_${grte_rpmver}-${grte_rpmrel}_amd64.deb
 done
@@ -60,7 +60,7 @@ function build_rpm() {
         --define "_topdir ${STAGING}" \
         --define "_rpmtopdir ${STAGING}" \
         --define 'disable_debuginfo t' \
-        --define "EMAIL ${EMAIL}" \
+        --define "maintainer_email ${EMAIL}" \
 	--define "grte_basename ${GRTEBASENAME}" \
 	--define "grte_root ${GRTEROOT}" \
 	--define "grte_version ${GRTEVERSION}" \
