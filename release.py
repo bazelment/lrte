@@ -85,8 +85,8 @@ def main():
                         help='Directory to store the output')
     parser.add_argument('--debug', action='store_true',
                         help='Start the docker container using bash')
-    parser.add_argument('--build_grte', default=True,
-                        help='Whether to build grte or skip it')
+    parser.add_argument('--no_build_grte', action='store_true',
+                        help='Skip building the whole grte')
     parser.add_argument('--grte_prefix', default='/usr/grte',
                         help='Directory prefix when grte gets installed')
     parser.add_argument('--grte_package_prefix', default='',
@@ -95,6 +95,8 @@ def main():
                         help='Steps to skip when building GRTE(which could be step1, step2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
                         help='Directory that stores original downloaded packages, like glibc code')
+    parser.add_argument('--no_build_crosstool', action='store_true',
+                        help='Skip building crosstool')
 
     args = parser.parse_args()
 
@@ -131,8 +133,7 @@ def main():
                         start_subprocess=False,
                         environment = env)
 
-
-    if args.build_grte:
+    if not args.no_build_grte:
         start_container(args.docker_image,
                         ['./build_grte.sh', args.grte_prefix, os.path.join(output_dir, 'grte')],
                         workdir = topdir,
@@ -144,6 +145,18 @@ def main():
         print('deb packages: %s' % (os.path.join(output_dir, 'grte/results/debs')))
         print('rpm packages: %s' % (os.path.join(output_dir, 'grte/results/rpms')))
     
+    if not args.no_build_crosstool:
+        start_container(args.docker_image,
+                        ['./build_crosstool.sh', args.grte_prefix,
+                         os.path.join(output_dir, 'grte/results/debs'),
+                         sources_dir],
+                        workdir = topdir,
+                        attach_stdin = True,
+                        attach_stdout = True,
+                        attach_stderr = True,
+                        mounts = mounts,
+                        environment = env)
+
 
 
 if __name__ == '__main__':
