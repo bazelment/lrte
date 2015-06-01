@@ -33,7 +33,7 @@ Environment.
 %install
 
 %post
-%{grte_root}/sbin/ldconfig
+%{grte_root}/sbin/ldconfig 2>/dev/null
 
 %files
 %defattr(-,root,root)
