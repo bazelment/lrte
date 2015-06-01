@@ -314,7 +314,7 @@ make_deterministic_ranlib_wrapper() {
 # Adjust some extra glibc configure arguments based on whether or not we
 # will be supporting 2.4 kernels.
 #
-xtra_glibc32_cfg="--enable-add-ons=nptl"
+xtra_glibc32_cfg=""
 xtra_glibc32_cfg="${xtra_glibc32_cfg} --enable-kernel=${grte_kernel26}"
 glibcdir="2.6"
 [ "${grte_support_kernel24}" = "0" ] || {
@@ -501,7 +501,6 @@ xtra_gcc_cfg=""
     --disable-profile \
     --disable-debug \
     --without-gd \
-    --enable-add-ons=nptl \
     --with-tls \
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
@@ -655,6 +654,8 @@ xtra_gcc_cfg=""
     --without-cvs \
     --disable-profile \
     --disable-debug \
+    --disable-build-nscd \
+    --disable-nscd \
     --without-gd \
     --with-tls \
     --with-__thread \
@@ -692,8 +693,9 @@ xtra_gcc_cfg=""
     --without-cvs \
     --disable-profile \
     --disable-debug \
+    --disable-build-nscd \
+    --disable-nscd \
     --without-gd \
-    --enable-add-ons=nptl \
     --with-tls \
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
@@ -939,8 +941,10 @@ xtra_gcc_cfg=""
     --cache-file=config.cache \
     --without-cvs \
     --without-gd \
-    --enable-add-ons=nptl,libidn \
+    --enable-add-ons=libidn \
     --enable-static-nss \
+    --disable-build-nscd \
+    --disable-nscd \
     --with-tls \
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
@@ -994,6 +998,8 @@ xtra_gcc_cfg=""
       --without-gd \
       --enable-add-ons=libidn \
       --enable-static-nss \
+      --disable-build-nscd \
+      --disable-nscd \
       --with-tls \
       --with-__thread \
       --enable-kernel=${grte_kernel24} \
@@ -1036,8 +1042,10 @@ xtra_gcc_cfg=""
     --cache-file=config.cache \
     --without-cvs \
     --without-gd \
-    --enable-add-ons=nptl,libidn \
+    --enable-add-ons=libidn \
     --enable-static-nss \
+    --disable-build-nscd \
+    --disable-nscd \
     --with-tls \
     --with-__thread \
     --enable-kernel=${grte_kernel26} \
