@@ -14,6 +14,3 @@ rm -rf grte/sources/*
 ./grte/prepare-sources.sh
 ./grte/grte-build ${GRTE_PREFIX} ${GRTE_TMPDIR}
 ./grte/grte-package ${GRTE_PREFIX} ${GRTE_TMPDIR}
-
-echo "Packages are in ${GRTE_TMPDIR}/results/debs"
-bash
