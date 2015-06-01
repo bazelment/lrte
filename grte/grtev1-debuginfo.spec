@@ -37,9 +37,9 @@ Debug symbols for the libaries in the %{grte_basename}-runtimes package.
 %{grte_root}/debug-src
 %{grte_root}/lib64/.debug
 %{grte_root}/lib64/gconv/.debug
-%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/.debug
-%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/install-tools/.debug
-%{grte_root}/libexec/gcc/x86_64-linux-gnu/4.9.1/plugin/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/%{grte_gcc_version}/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/%{grte_gcc_version}/install-tools/.debug
+%{grte_root}/libexec/gcc/x86_64-linux-gnu/%{grte_gcc_version}/plugin/.debug
 %{grte_root}/sbin/.debug
 %{grte_root}/x86_64-linux-gnu/bin/.debug
 
