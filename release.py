@@ -83,12 +83,16 @@ def main():
                         help='Email address used as package maintainer')
     parser.add_argument('--output', default=os.path.join(os.path.dirname(__file__), 'output'),
                         help='Directory to store the output')
+    parser.add_argument('--debug', action='store_true',
+                        help='Start the docker container using bash')
     parser.add_argument('--build_grte', default=True,
                         help='Whether to build grte or skip it')
     parser.add_argument('--grte_prefix', default='/usr/grte',
                         help='Directory prefix when grte gets installed')
     parser.add_argument('--grte_package_prefix', default='',
                         help='Prefix used in names of  grte packages')
+    parser.add_argument('--grte_skip', choices=['step1', 'step2', 'final'], action='append',
+                        help='Steps to skip when building GRTE(which could be step1, step2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
                         help='Directory that stores original downloaded packages, like glibc code')
 
@@ -104,13 +108,29 @@ def main():
     mounts.append((os.path.abspath(args.upstream_source), sources_dir))
 
     env = {
-        'EMAIL': args.email,
         'JFLAGS' : '-j8',
         'GRTE_PACKAGE_PREFIX' : args.grte_package_prefix,
     }
+    if args.email:
+        env['EMAIL'] = args.email
+    if args.grte_skip:
+        for skip in args.grte_skip:
+            env['SKIP_' + skip.upper()] = '1'
 
     if not os.path.isdir(args.output):
         os.makedirs(args.output)
+
+    if args.debug:
+        start_container(args.docker_image,
+                        ['/bin/bash'],
+                        workdir = topdir,
+                        attach_stdin = True,
+                        attach_stdout = True,
+                        attach_stderr = True,
+                        mounts = mounts,
+                        start_subprocess=False,
+                        environment = env)
+
 
     if args.build_grte:
         start_container(args.docker_image,
@@ -121,6 +141,8 @@ def main():
                         attach_stderr = True,
                         mounts = mounts,
                         environment = env)
+        print('deb packages: %s' % (os.path.join(output_dir, 'grte/results/debs')))
+        print('rpm packages: %s' % (os.path.join(output_dir, 'grte/results/rpms')))
     
 
 
