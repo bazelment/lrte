@@ -200,7 +200,7 @@ fix_changelog() {
 
   * Converted from .rpm format to .deb by alien / crosstool rpm_to_deb
 
- -- c-compiler-team <c-compiler-team@google.com>  $today
+ -- Release Engineer <${EMAIL}>  $today
 EOF
   mv -f "$dir/debian/changelog.tmp" "$dir/debian/changelog"
 }
