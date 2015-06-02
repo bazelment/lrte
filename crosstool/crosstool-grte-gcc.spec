@@ -201,5 +201,5 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 %{target_top}/x86/*
 
 %changelog
-* Thu Jun 01 2015 Ming Zhao <mzhao@luminatewireless.com>
-- Build gcc 4.9.2 and binutils 2.25.
+* Mon Jun 01 2015 Ming Zhao <mzhao@luminatewireless.com>
+- Build gcc 4.9(@svn %{gcc_svn_version}) and binutils 2.25.

@@ -80,4 +80,4 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 
 %changelog
 * Mon Jun 01 2015 Release Engineer <%{maintainer_email}>
-- Clang %{crosstool_clang_version}.
+- Clang %{crosstool_clang_version} with SVN %{clang_svn_version}.

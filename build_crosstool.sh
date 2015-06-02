@@ -33,17 +33,11 @@ CROSSTOOL_SOURCES=$3
 # Crosstool configuration
 CROSSTOOL_VERSION="v2"
 
-CROSSTOOL_GCC_VERSION="4.9.2"
-if [ -n "$GCC_SVN_VERSION" ]; then
-    CROSSTOOL_GCC_VERSION="${CROSSTOOL_GCC_VERSION}-r${GCC_SVN_VERSION}"
-fi
+CROSSTOOL_GCC_VERSION="4.9"
 
 # Assume the clang source code is checked out following
 # http://clang.llvm.org/get_started.html
 CROSSTOOL_CLANG_VERSION="3.7"
-if [ -n "$CLANG_SVN_VERSION" ]; then
-    CROSSTOOL_CLANG_VERSION="${CROSSTOOL_CLANG_VERSION}-r${CLANG_SVN_VERSION}"
-fi
 
 : ${crosstool_rpmver:="1.0"}
 # Update this each time new RPM's are built.
@@ -63,12 +57,13 @@ done
 # Use bash as shell, other "source" command inside rpm spec will fail.
 ln -sf /bin/bash /bin/sh
 
-
-apt-get update
 # install packages that are needed by building binutils and clang
+apt-get update
 apt-get install -y flex bison rpm texinfo texi2html
 
 function build_rpm() {
+    local rpmrel=$1
+    local spec_file=$2
     rpmbuild \
         --dbpath /dev/null \
         --define "_hash_empty_files 1" \
@@ -87,36 +82,41 @@ function build_rpm() {
         --define "crosstool_scripts ${absroot}/crosstool/scripts" \
         --define "crosstool_version ${CROSSTOOL_VERSION}" \
         --define "crosstool_rpmver ${crosstool_rpmver}" \
-        --define "crosstool_rpmrel ${crosstool_rpmrel}" \
+        --define "crosstool_rpmrel ${rpmrel}" \
         --define "crosstool_gcc_version ${CROSSTOOL_GCC_VERSION}" \
         --define "gcc_svn_version ${GCC_SVN_VERSION}" \
         --define "crosstool_clang_version ${CROSSTOOL_CLANG_VERSION}" \
         --define "clang_svn_version ${CLANG_SVN_VERSION}" \
-        -bb $@
+        -bb ${spec_file}
 }
 
 function package() {
     local name=$1  # gcc, clang
     local version=$2  # gcc version, or clang version
-    build_rpm crosstool/crosstool-grte-${name}.spec
+    local svn_version=$3
+    local rpm_rel=${crosstool_rpmrel}.${svn_version}svn
+    build_rpm ${rpm_rel} crosstool/crosstool-grte-${name}.spec
     local package_prefix="${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-${name}-${version}"
-    local rpm="RPMS/x86_64/${package_prefix}-${crosstool_rpmver}-${crosstool_rpmrel}.x86_64.rpm"
+    local rpm="RPMS/x86_64/${package_prefix}-${crosstool_rpmver}-${rpm_rel}.x86_64.rpm"
     pushd $STAGING
     ${absroot}/crosstool/scripts/rpm_to_deb "$rpm"
-    mv "${package_prefix}_${crosstool_rpmver}-${crosstool_rpmrel}_amd64.deb" \
-	"${package_prefix}_${crosstool_rpmver}-${crosstool_rpmrel}_amd64.changes" \
+    mv "${package_prefix}_${crosstool_rpmver}-${rpm_rel}_amd64.deb" \
+	"${package_prefix}_${crosstool_rpmver}-${rpm_rel}_amd64.changes" \
 	"${RESULTS}/debs"
     mv "$rpm" "${RESULTS}/rpms"
     popd
 }
 
 set -e
+# For test rpm creation and deb conversion.
+# package foo ${CROSSTOOL_GCC_VERSION} ${GCC_SVN_VERSION}
+
 [ -z "${SKIP_CROSSTOOL_GCC}" ] && {
-    package gcc ${CROSSTOOL_GCC_VERSION}
+    package gcc ${CROSSTOOL_GCC_VERSION} ${GCC_SVN_VERSION}
 }
 
 # Install the crosstool gcc to build clang
-dpkg -i ${DEB_DIR}/${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-gcc-${CROSSTOOL_GCC_VERSION}_${crosstool_rpmver}-${crosstool_rpmrel}_amd64.deb
+dpkg -i ${DEB_DIR}/${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-gcc-${CROSSTOOL_GCC_VERSION}_${crosstool_rpmver}-${crosstool_rpmrel}.${GCC_SVN_VERSION}svn_amd64.deb
 
 # Build cmake because cmake in ubuntu 13 is too old
 mkdir -p ${STAGING}/cmake
@@ -127,4 +127,4 @@ make ${PARALLELMFLAGS}
 make install
 popd
 
-package clang ${CROSSTOOL_CLANG_VERSION}
+package clang ${CROSSTOOL_CLANG_VERSION} ${CLANG_SVN_VERSION}
