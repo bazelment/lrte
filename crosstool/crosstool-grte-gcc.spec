@@ -1,9 +1,9 @@
 %define gcc_glibc_version gcc-%{grte_gcc_version}-%{grte_basename}
-%define base_summary %{gcc_glibc_version} compiler for %{GRTEROOT}
+%define base_summary %{gcc_glibc_version} compiler for %{grte_root}
 Summary: %{base_summary}
 Name: %{grte_basename}-crosstool%{crosstool_version}-gcc-%{crosstool_gcc_version}
-Version: 1.0
-Release: 8
+Version: %{crosstool_rpmver}
+Release: %{crosstool_rpmrel}
 License: GPL/LGPL
 Group: Development/Languages
 Packager: Release Engineer <%{maintainer_email}>
@@ -12,10 +12,10 @@ Requires: %{grte_basename}-runtime %{grte_basename}-headers
 
 # Source0: crosstool-scripts.tar.gz
 Source0: binutils-2.25.tar.bz2
+# Patch0: binutils-2.24-set-section-macros.patch
 Source1: gmp-6.0.0a.tar.bz2
 Source2: mpc-1.0.3.tar.gz
 Source3: mpfr-3.1.2.tar.bz2
-# Patch0: binutils-2.24-set-section-macros.patch
 
 BuildRoot: %{_tmppath}/%{name}-buildroot
 
