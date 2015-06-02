@@ -72,6 +72,18 @@ def start_container(docker_image, command,
         os.execv(cmd[0], cmd)
 
 
+def get_svn_revision(svn_directory, svn_url):
+    try:
+        svn_version = subprocess.check_output(
+            ['svn info |grep Revision:'],
+            shell=True, universal_newlines=True,
+            cwd=svn_directory)
+        return svn_version.split(': ')[1].strip()
+    except subprocess.CalledProcessError:
+        print('Please checkout code from ' + svn_url)
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(
         description = __doc__,
@@ -97,6 +109,8 @@ def main():
                         help='Directory that stores original downloaded packages, like glibc code')
     parser.add_argument('--no_build_crosstool', action='store_true',
                         help='Skip building crosstool')
+    parser.add_argument('--crosstool_skip', choices=['gcc'], action='append',
+                        help='Steps to skip when building crosstool')
 
     args = parser.parse_args()
 
@@ -133,22 +147,35 @@ def main():
                         start_subprocess=False,
                         environment = env)
 
+    grte_output = os.path.join(args.output, 'grte')
+    grte_output_in_docker = os.path.join(output_dir, 'grte')
     if not args.no_build_grte:
         start_container(args.docker_image,
-                        ['./build_grte.sh', args.grte_prefix, os.path.join(output_dir, 'grte')],
+                        ['./build_grte.sh', args.grte_prefix, grte_output_in_docker],
                         workdir = topdir,
                         attach_stdin = True,
                         attach_stdout = True,
                         attach_stderr = True,
                         mounts = mounts,
                         environment = env)
-        print('deb packages: %s' % (os.path.join(output_dir, 'grte/results/debs')))
-        print('rpm packages: %s' % (os.path.join(output_dir, 'grte/results/rpms')))
+        print('deb packages: %s' % (os.path.join(grte_output, 'results/debs')))
+        print('rpm packages: %s' % (os.path.join(grte_output, 'results/rpms')))
     
     if not args.no_build_crosstool:
+        if not os.path.isdir(os.path.join(grte_output, 'results/debs')):
+            raise Exception(os.path.join(grte_output, 'results/debs') + ' does not exit, please build GRTE packages first')
+        env['GCC_SVN_VERSION'] = get_svn_revision(
+            os.path.join(args.upstream_source, 'gcc-4_9'),
+            'svn://gcc.gnu.org/svn/gcc/branches/google/gcc-4_9')
+        env['CLANG_SVN_VERSION'] = get_svn_revision(
+            os.path.join(args.upstream_source, 'llvm/tools/clang'),
+            'http://clang.llvm.org/get_started.html')
+        if args.crosstool_skip:
+            for skip in args.crosstool_skip:
+                env['SKIP_CROSSTOOL_' + skip.upper()] = '1'
         start_container(args.docker_image,
                         ['./build_crosstool.sh', args.grte_prefix,
-                         os.path.join(output_dir, 'grte/results/debs'),
+                         grte_output_in_docker,
                          sources_dir],
                         workdir = topdir,
                         attach_stdin = True,
