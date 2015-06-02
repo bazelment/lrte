@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/bash
 
 #
 # This file takes the output of the grte-build script, which is a set of
@@ -45,6 +45,7 @@ export LC_ALL
 absname=`readlink -f "$0"`
 absroot="${absname%/*}"
 # rpmbuild='/home/build/buildtools/buildhelpers/v2/rpm-4.4.1/bin/rpmbuild'
+rpmbuild='rpmbuild'
 
 [ -f "${absroot}/grte.cfg" ] || {
   error "could not find ${absroot}/grte.cfg"
@@ -938,7 +939,12 @@ Standards-Version: 3.8.0' \
   #
   tmprules=$(mktemp -t grtepackage.XXXXXX)
   mv -f "${dir}/debian/rules" "${tmprules}"
-  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.19.so/' \
+  if [ "${glibc_version}" != "2.21" ]
+  then
+    echo "Please update -Xld- version to ${glibc_version}"
+    exit 1
+  fi
+  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.21.so/' \
       -e '/dh_shlibdeps/d' \
       -e '/dh_clean/ s/-k -d//' \
       "${tmprules}" > "${dir}/debian/rules"
