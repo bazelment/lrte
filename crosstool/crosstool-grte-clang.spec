@@ -13,7 +13,7 @@ Packager: Release Engineer <%{maintainer_email}>
 AutoReqProv: no
 Requires: %{grte_basename}-runtime %{grte_basename}-headers %{grte_basename}-crosstool%{crosstool_version}-gcc-%{crosstool_gcc_version}
 
-# Source0: clang-llvm-3.6-svn20100801.tgz
+# Source0: cmake-3.2.3.tar.gz
 BuildRoot: %{_tmppath}/%{name}-buildroot
 
 # Create debuginfo unless disable_debuginfo is defined.
@@ -26,7 +26,8 @@ BuildRoot: %{_tmppath}/%{name}-buildroot
 Clang %{crosstool_clang_version} to work with %{grte_basename}
 
 %prep
-# %setup
+# %setup -c
+# %setup -T -D -a 0
 
 %define crosstool_top /usr/crosstool/%{crosstool_version}
 %define target_top %{crosstool_top}/%{gcc_glibc_version}
@@ -34,28 +35,31 @@ Clang %{crosstool_clang_version} to work with %{grte_basename}
 
 %build
 export PATH="%{target_top}/x86/bin:%{grte_top}/bin:%{grte_top}/sbin:$PATH"
-export CC="gcc -isystem %{grte_top}/include -L%{grte_top}/lib64"
-export LDFLAGS="-Wl,-I,%{grte_top}/lib64/ld-linux-x86-64.so.2"
-export CFLAGS="-isystem %{grte_top}/include -L%{grte_top}/lib64"
+# export CC="gcc -isystem %{grte_top}/include -L%{grte_top}/lib64"
+# export LDFLAGS="-Wl,-I,%{grte_top}/lib64/ld-linux-x86-64.so.2"
+# export CFLAGS="-isystem %{grte_top}/include -L%{grte_top}/lib64"
+# export CPPFLAGS="-isystem %{grte_top}/include -DGRTE_ROOT='\"%{grte_root}\"'"
 WORK_DIR="$RPM_BUILD_DIR/$RPM_PACKAGE_NAME-$RPM_PACKAGE_VERSION"
+
+# Build cmake because cmake in ubuntu 13 is too old
+# mkdir -p ${WORK_DIR}/cmake
+# cd ${WORK_DIR}/cmake
+# $WORK_DIR/cmake-3.2.3/configure --parallel=${PARALLELMFLAGS}
+# make ${PARALLELMFLAGS}
+# make install
+
 mkdir -p ${WORK_DIR}/llvm-build
 cd ${WORK_DIR}/llvm-build
-%{_sourcedir}/llvm/configure \
-    --enable-cxx11 \
-    --enable-optimized \
-    --disable-docs \
-    --with-default-sysroot=%{grte_top} \
-    --with-build-sysroot=%{grte_top} \
-    --prefix=%{target_top}/x86 \
-    --build=x86_64-unknown-linux-gnu \
-    --host=x86_64-unknown-linux-gnu \
-    --enable-targets=host \
-    --enable-linker-build-id \
-    --includedir=%{grte_top}/include \
-    --oldincludedir=%{grte_top}/include \
-    --with-gcc-toolchain=%{target_top}/x86 \
-    --with-binutils-include=%{target_top}/x86/include \
-    CPPFLAGS="-isystem %{grte_top}/include -DGRTE_ROOT='\"%{grte_root}\"'"
+cmake -DCMAKE_BUILD_TYPE=Release \
+    -DCLANG_GRTE_ROOT=%{grte_root} \
+    -DCMAKE_INSTALL_PREFIX=%{target_top}/x86 \
+    -DLLVM_TARGETS_TO_BUILD=host \
+    -DLLVM_PARALLEL_COMPILE_JOBS=$PARALLELMFLAGS \
+    -DLLVM_BUILD_DOCS=OFF \
+    -DDEFAULT_SYSROOT=%{grte_top} \
+    -DGCC_INSTALL_PREFIX=%{target_top}/x86 \
+    -DLLVM_BINUTILS_INCDIR=%{target_top}/x86/include \
+    %{_sourcedir}/llvm
 make $PARALLELMFLAGS
 rm -rf $RPM_BUILD_ROOT
 make install DESTDIR=$RPM_BUILD_ROOT
