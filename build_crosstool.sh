@@ -102,8 +102,8 @@ function package() {
     ${absroot}/crosstool/scripts/rpm_to_deb "$rpm"
     mv "${package_prefix}_${crosstool_rpmver}-${rpm_rel}_amd64.deb" \
 	"${package_prefix}_${crosstool_rpmver}-${rpm_rel}_amd64.changes" \
-	"${RESULTS}/debs"
-    mv "$rpm" "${RESULTS}/rpms"
+	"${RESULTS}/debs/"
+    mv "$rpm" "${RESULTS}/rpms/"
     popd
 }
 
