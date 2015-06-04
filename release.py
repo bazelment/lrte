@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -u
 
-'''Release both GRTE and crosstool by building them inside docker
+'''Release both LRTE and crosstool by building them inside docker
 container'''
 
 import argparse
@@ -91,20 +91,20 @@ def main():
     )
     parser.add_argument('--docker_image', default='build',
                         help='Name of the docker image to use')
-    parser.add_argument('--email', default=os.getenv('EMAIL'),
+    parser.add_argument('--email', default=os.getenv('EMAIL', default='foo@bar.io'),
                         help='Email address used as package maintainer')
     parser.add_argument('--output', default=os.path.join(os.path.dirname(__file__), 'output'),
                         help='Directory to store the output')
     parser.add_argument('--debug', action='store_true',
                         help='Start the docker container using bash')
-    parser.add_argument('--no_build_grte', action='store_true',
-                        help='Skip building the whole grte')
-    parser.add_argument('--grte_prefix', default='/usr/grte',
-                        help='Directory prefix when grte gets installed')
-    parser.add_argument('--grte_package_prefix', default='',
-                        help='Prefix used in names of  grte packages')
-    parser.add_argument('--grte_skip', choices=['step1', 'step2', 'final'], action='append',
-                        help='Steps to skip when building GRTE(which could be step1, step2, final)')
+    parser.add_argument('--no_build_lrte', action='store_true',
+                        help='Skip building the whole lrte')
+    parser.add_argument('--lrte_prefix', default='/usr/lrte',
+                        help='Directory prefix when lrte gets installed')
+    parser.add_argument('--lrte_package_prefix', default='',
+                        help='Prefix used in names of  lrte packages')
+    parser.add_argument('--lrte_skip', choices=['step1', 'step2', 'final'], action='append',
+                        help='Steps to skip when building LRTE(which could be step1, step2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
                         help='Directory that stores original downloaded packages, like glibc code')
     parser.add_argument('--no_build_crosstool', action='store_true',
@@ -125,12 +125,12 @@ def main():
 
     env = {
         'JFLAGS' : '-j8',
-        'GRTE_PACKAGE_PREFIX' : args.grte_package_prefix,
+        'GRTE_PACKAGE_PREFIX' : args.lrte_package_prefix,
     }
     if args.email:
         env['EMAIL'] = args.email
-    if args.grte_skip:
-        for skip in args.grte_skip:
+    if args.lrte_skip:
+        for skip in args.lrte_skip:
             env['SKIP_' + skip.upper()] = '1'
 
     if not os.path.isdir(args.output):
@@ -147,23 +147,23 @@ def main():
                         start_subprocess=False,
                         environment = env)
 
-    grte_output = os.path.join(args.output, 'grte')
-    grte_output_in_docker = os.path.join(output_dir, 'grte')
-    if not args.no_build_grte:
+    lrte_output = os.path.join(args.output, 'lrte')
+    lrte_output_in_docker = os.path.join(output_dir, 'lrte')
+    if not args.no_build_lrte:
         start_container(args.docker_image,
-                        ['./build_grte.sh', args.grte_prefix, grte_output_in_docker],
+                        ['./build_grte.sh', args.lrte_prefix, lrte_output_in_docker],
                         workdir = topdir,
                         attach_stdin = True,
                         attach_stdout = True,
                         attach_stderr = True,
                         mounts = mounts,
                         environment = env)
-        print('deb packages: %s' % (os.path.join(grte_output, 'results/debs')))
-        print('rpm packages: %s' % (os.path.join(grte_output, 'results/rpms')))
+        print('deb packages: %s' % (os.path.join(lrte_output, 'results/debs')))
+        print('rpm packages: %s' % (os.path.join(lrte_output, 'results/rpms')))
     
     if not args.no_build_crosstool:
-        if not os.path.isdir(os.path.join(grte_output, 'results/debs')):
-            raise Exception(os.path.join(grte_output, 'results/debs') + ' does not exit, please build GRTE packages first')
+        if not os.path.isdir(os.path.join(lrte_output, 'results/debs')):
+            raise Exception(os.path.join(lrte_output, 'results/debs') + ' does not exit, please build LRTE packages first')
         env['GCC_SVN_VERSION'] = get_svn_revision(
             os.path.join(args.upstream_source, 'gcc-4_9'),
             'svn://gcc.gnu.org/svn/gcc/branches/google/gcc-4_9')
@@ -174,8 +174,8 @@ def main():
             for skip in args.crosstool_skip:
                 env['SKIP_CROSSTOOL_' + skip.upper()] = '1'
         start_container(args.docker_image,
-                        ['./build_crosstool.sh', args.grte_prefix,
-                         grte_output_in_docker,
+                        ['./build_crosstool.sh', args.lrte_prefix,
+                         lrte_output_in_docker,
                          sources_dir],
                         workdir = topdir,
                         attach_stdin = True,

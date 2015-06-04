@@ -1003,13 +1003,13 @@ mkdir "${RESULTS}/debs" "${RESULTS}/rpms" "${RESULTS}/sdebs" \
 # Create each RPM and the corresponding debs and sdeb.
 for package in grte-runtime grte-headers grte-gde grte-debuginfo; do
   specfile=`echo $package | sed -e 's,grte,grtev1,'`.spec
-  buildroot=`echo $package | sed -e 's,grte,grtev1,'`
+  buildroot=`echo $package | sed -e "s,grte,grtev${GRTEVERSION},"`
   package_name=$(echo $package | sed -e "s,grte,${GRTEBASENAME},")
   # --define "_buildrootdir ${STAGING}/grtev${GRTEVERSION}-${package}"
   cd "${STAGING}"
   ${rpmbuild} \
     --define "_hash_empty_files 1" \
-    --define "EMAIL ${EMAIL}" \
+    --define "maintainer_email ${EMAIL}" \
     --define "GRTEBUILD ${STAGING}" \
     --define "_topdir ${STAGING}" \
     --define "_rpmtopdir ${STAGING}" \

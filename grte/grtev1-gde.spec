@@ -10,7 +10,7 @@
 %define _unpackaged_files_terminate_build 1
 %define __os_install_post %{nil}
 
-Summary: GRTE Version %{grte_version} Development Environment (GDE to build crosstools)
+Summary: LRTE Version %{grte_version} Development Environment (GDE to build crosstools)
 Name: %{grte_basename}-gde
 Version: %{grte_rpmver}
 Release: %{grte_rpmrel}
@@ -19,13 +19,13 @@ Group: Development/Debuggers
 BuildRoot: %{_tmppath}/grtev%{grte_version}-gde
 AutoReqProv: no
 Requires: %{grte_basename}-runtime %{grte_basename}-headers
-Packager: Release Engineer <%{EMAIL}>
+Packager: Release Engineer <%{maintainer_email}>
 
 %description
 GNU C Compiler (GCC) Version %{grte_gcc_version} and supporting files for developing
-applications that use the Google Runtime Environment (GRTE). This
+applications that use the Linux C/C++ Runtime Environment (LRTE). This
 package includes the static versions of all of the libraries provided
-in the GRTE Runtimes package, as well as the compiler itself. This also
+in the LRTE Runtimes package, as well as the compiler itself. This also
 includes all of the header files fo the standard C library, GMP and
 MPFR.
 

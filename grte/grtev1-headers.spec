@@ -18,11 +18,11 @@ Group: Development/Debuggers
 BuildRoot: %{_tmppath}/grtev%{grte_version}-headers
 AutoReqProv: no
 Requires: %{grte_basename}-runtime
-Packager: Release Engineer <%{EMAIL}>
+Packager: Release Engineer <%{maintainer_email}>
 
 %description
 Headers and static libraries required for compiling applications which
-target GRTE.
+target LRTE.
 
 %prep
 

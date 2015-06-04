@@ -10,7 +10,7 @@
 %define _unpackaged_files_terminate_build 1
 %define __os_install_post %{nil}
 
-Summary: Google Runtime Environment (GRTE) Version %{grte_version} Debug Symbols
+Summary: Linux C/C++ Runtime Environment (LRTE) Version %{grte_version} Debug Symbols
 Name: %{grte_basename}-debuginfo
 Version: %{grte_rpmver}
 Release: %{grte_rpmrel}
@@ -18,7 +18,7 @@ License: GPL
 Group: Development/Debuggers
 BuildRoot: %{_tmppath}/grtev%{grte_version}-debuginfo
 AutoReqProv: no
-Packager: Release Engineer <%{EMAIL}>
+Packager: Release Engineer <%{maintainer_email}>
 
 %description
 Debug symbols for the libaries in the %{grte_basename}-runtimes package.
