@@ -59,7 +59,7 @@ ln -sf /bin/bash /bin/sh
 
 # install packages that are needed by building binutils and clang
 apt-get update
-apt-get install -y flex bison rpm texinfo texi2html
+apt-get install -y flex bison rpm texinfo texi2html libxml2-dev
 
 function build_rpm() {
     local rpmrel=$1
