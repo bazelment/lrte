@@ -51,6 +51,7 @@ WORK_DIR="$RPM_BUILD_DIR/$RPM_PACKAGE_NAME-$RPM_PACKAGE_VERSION"
 mkdir -p ${WORK_DIR}/llvm-build
 cd ${WORK_DIR}/llvm-build
 cmake -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,-I,%{grte_top}/lib64/ld-linux-x86-64.so.2" \
     -DCLANG_GRTE_ROOT=%{grte_root} \
     -DCMAKE_INSTALL_PREFIX=%{target_top}/x86 \
     -DLLVM_TARGETS_TO_BUILD=host \
