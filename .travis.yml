@@ -18,8 +18,8 @@ script:
   - ps aux
   - uname -a
   - ls -l /
-  - /sbin/ifconfig
-  - sudo -E ifconfig
+  - ls -l /sbin
+  - sudo -E apt-get update
 
 notifications:
   email: false
