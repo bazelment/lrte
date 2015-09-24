@@ -17,6 +17,8 @@ script:
   - ls $HOME
   - ps aux
   - uname -a
+  - ls -l /
+  - ifconfig
 
 notifications:
   email: false
