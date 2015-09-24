@@ -18,7 +18,8 @@ script:
   - ps aux
   - uname -a
   - ls -l /
-  - ifconfig
+  - /sbin/ifconfig
+  - sudo -E ifconfig
 
 notifications:
   email: false
