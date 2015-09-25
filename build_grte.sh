@@ -4,7 +4,7 @@
 
 set -ex
 apt-get update
-apt-get install -y texinfo texi2html
+apt-get install -y texinfo texi2html xz-utils
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2
