@@ -8,7 +8,10 @@ apt-get update
 # docker)
 # xz-utils: needed to unpack kernel source
 # gawk: used by building glibc
-apt-get install -y texinfo texi2html xz-utils make gcc g++ gawk
+# rpm: rpmbuild to build rpm package
+# alien, fakeroot, debhelper: convert rpm package to debian package
+apt-get install -y texinfo texi2html xz-utils make gcc g++ gawk \
+    rpm alien fakeroot debhelper
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2
