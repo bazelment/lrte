@@ -4,7 +4,9 @@
 
 set -ex
 apt-get update
-apt-get install -y texinfo texi2html xz-utils
+# Make sure requires packages are installed(either on host or insider
+# docker)
+apt-get install -y texinfo texi2html xz-utils make gcc g++
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2
