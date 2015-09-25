@@ -6,7 +6,9 @@ set -ex
 apt-get update
 # Make sure requires packages are installed(either on host or insider
 # docker)
-apt-get install -y texinfo texi2html xz-utils make gcc g++
+# xz-utils: needed to unpack kernel source
+# gawk: used by building glibc
+apt-get install -y texinfo texi2html xz-utils make gcc g++ gawk
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2
