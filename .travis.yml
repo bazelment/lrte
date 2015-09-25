@@ -1,4 +1,12 @@
-sudo: false
+sudo: true
+
+services:
+  - docker
+
+cache:
+  directories:
+  - $HOME/sources
+  - $HOME/output
 
 # language: cpp
 addons:
@@ -7,19 +15,20 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - wget
+      # We use gcc inside container
+      # - gcc-4.8
+      # - g++-4.8
+
+before_install:
+  - TAR_DIR=$HOME/sources ./grte/download.sh
+  - docker pull ubuntu:14.04
 
 #install:
 #  - ./install-lrte.sh
 
 script:
-  - export
-  - whoami
-  - ls $HOME
-  - ps aux
-  - uname -a
-  - ls -l /
-  - ls -l /sbin
-  - sudo -E apt-get update
+  # Just build lrte in this stage.
+  - ./release.py --docker_image=ubuntu:14.04 --no_build_crosstool --output=$HOME/output --upstream_source=$HOME/sources
 
 notifications:
   email: false
