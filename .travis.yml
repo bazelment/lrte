@@ -5,6 +5,7 @@ services:
 
 cache:
   directories:
+  - $HOME/upstream
   - $HOME/sources
   - $HOME/output
 
@@ -33,6 +34,7 @@ before_install:
   - TAR_DIR=$HOME/upstream ./grte/prepare-sources.sh
 
 script:
+  - mkdir -p $HOME/lrte-k8
   - ./grte/grte-build $HOME/lrte-k8 $HOME/output
   - ./grte/grte-package $HOME/lrte-k8 $HOME/output
 
