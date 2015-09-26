@@ -10,8 +10,9 @@ apt-get update
 # gawk: used by building glibc
 # rpm: rpmbuild to build rpm package
 # alien, fakeroot, debhelper: convert rpm package to debian package
+# python: 2to3
 apt-get install -y texinfo texi2html xz-utils make gcc g++ gawk \
-    rpm alien fakeroot debhelper
+    rpm alien fakeroot debhelper python
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2
