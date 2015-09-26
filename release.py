@@ -100,9 +100,12 @@ def main():
     parser.add_argument('--no_build_lrte', action='store_true',
                         help='Skip building the whole lrte')
     parser.add_argument('--lrte_prefix', default='/usr/lrte',
-                        help='Directory prefix when lrte gets installed')
+                        help='Directory prefix where lrte gets installed')
     parser.add_argument('--lrte_package_prefix', default='',
-                        help='Prefix used in names of  lrte packages')
+                        help='Prefix used in names of lrte packages, by default, '
+                        'the packages are name like lrtev1-runtime_1.0-3_amd64.deb, '
+                        'setting a prefix like xyz will name the package like '
+                        'xyzlrtev1-runtime_1.0-3_amd64.deb')
     parser.add_argument('--lrte_skip', choices=['step1', 'step2', 'final'], action='append',
                         help='Steps to skip when building LRTE(which could be step1, step2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
@@ -160,7 +163,7 @@ def main():
                         environment = env)
         print('deb packages: %s' % (os.path.join(lrte_output, 'results/debs')))
         print('rpm packages: %s' % (os.path.join(lrte_output, 'results/rpms')))
-    
+
     if not args.no_build_crosstool:
         if not os.path.isdir(os.path.join(lrte_output, 'results/debs')):
             raise Exception(os.path.join(lrte_output, 'results/debs') + ' does not exit, please build LRTE packages first')
