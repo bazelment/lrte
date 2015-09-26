@@ -15,20 +15,26 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - wget
-      # We use gcc inside container
-      # - gcc-4.8
-      # - g++-4.8
+      # There packages are needed to build lrte, see  build_grte.sh
+      - texinfo
+      - texi2html
+      - x2-utils
+      - make
+      - gcc
+      - g++
+      - gawk
+      - rpm
+      - alien
+      - fakeroot
+      - debhelper
 
 before_install:
-  - TAR_DIR=$HOME/sources ./grte/download.sh
-  - docker pull ubuntu:14.04
-
-#install:
-#  - ./install-lrte.sh
+  - TAR_DIR=$HOME/upstream ./grte/download.sh
+  - TAR_DIR=$HOME/upstream ./grte/prepare-sources.sh
 
 script:
-  # Just build lrte in this stage.
-  - ./release.py --docker_image=ubuntu:14.04 --no_build_crosstool --output=$HOME/output --upstream_source=$HOME/sources
+  - ./grte/grte-build $HOME/lrte-k8 $HOME/output
+  - ./grte/grte-package $HOME/lrte-k8 $HOME/output
 
 notifications:
   email: false
