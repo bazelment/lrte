@@ -5,4 +5,4 @@
 apt-get install -y apt-transport-https
 apt-add-repository 'deb https://github.com/mzhaom/lrte/releases/download/v2.0_0 ./'
 apt-get update
-apt-get install lrtev2-crosstoolv2-gcc-4.9 lrtev2-crosstoolv2-clang-3.7
+apt-get install -y --force-yes lrtev2-crosstoolv2-gcc-4.9 lrtev2-crosstoolv2-clang-3.7
