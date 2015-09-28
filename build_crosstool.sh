@@ -120,8 +120,14 @@ dpkg -i ${DEB_DIR}/${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-gcc-${CROSSTOOL
 
 # Build cmake because cmake in ubuntu 13 is too old
 mkdir -p ${STAGING}/cmake
-tar zxf ${CROSSTOOL_SOURCES}/cmake-3.2.3.tar.gz -C ${STAGING}/cmake
-pushd ${STAGING}/cmake/cmake-3.2.3
+CMAKE_VERSION=3.3.2
+if [ ! -e ${CROSSTOOL_SOURCES}/cmake-${CMAKE_VERSION}.tar.gz ]; then
+    pushd ${CROSSTOOL_SOURCES}
+    wget http://cmake.org/files/v3.3/cmake-${CMAKE_VERSION}.tar.gz
+    popd
+fi
+tar zxf ${CROSSTOOL_SOURCES}/cmake-${CMAKE_VERSION}.tar.gz -C ${STAGING}/cmake
+pushd ${STAGING}/cmake/cmake-${CMAKE_VERSION}
 ./configure --parallel=${PARALLELMFLAGS}
 make ${PARALLELMFLAGS}
 make install
