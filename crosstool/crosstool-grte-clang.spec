@@ -13,7 +13,6 @@ Packager: Release Engineer <%{maintainer_email}>
 AutoReqProv: no
 Requires: %{grte_basename}-runtime %{grte_basename}-headers %{grte_basename}-crosstool%{crosstool_version}-gcc-%{crosstool_gcc_version}
 
-# Source0: cmake-3.2.3.tar.gz
 BuildRoot: %{_tmppath}/%{name}-buildroot
 
 # Create debuginfo unless disable_debuginfo is defined.
@@ -84,6 +83,7 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 %{target_top}/x86/bin/*
 %{target_top}/x86/include/*
 %{target_top}/x86/lib/*
+%{target_top}/x86/libexec/*
 %{target_top}/x86/share/*
 
 %changelog

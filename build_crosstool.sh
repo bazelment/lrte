@@ -31,13 +31,13 @@ DEB_DIR=${RESULTS}/debs
 CROSSTOOL_SOURCES=$3
 
 # Crosstool configuration
-CROSSTOOL_VERSION="v5"
+CROSSTOOL_VERSION="v6"
 
 CROSSTOOL_GCC_VERSION="4.9"
 
 # Assume the clang source code is checked out following
 # http://clang.llvm.org/get_started.html
-CROSSTOOL_CLANG_VERSION="3.7"
+CROSSTOOL_CLANG_VERSION="3.9"
 
 : ${crosstool_rpmver:="1.0"}
 # Update this each time new RPM's are built.
@@ -120,8 +120,8 @@ dpkg -i ${DEB_DIR}/${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-gcc-${CROSSTOOL
 
 # Build cmake because cmake in ubuntu 13 is too old
 mkdir -p ${STAGING}/cmake
-tar zxf ${CROSSTOOL_SOURCES}/cmake-3.2.3.tar.gz -C ${STAGING}/cmake
-pushd ${STAGING}/cmake/cmake-3.2.3
+tar zxf ${CROSSTOOL_SOURCES}/cmake-3.6.2.tar.gz -C ${STAGING}/cmake
+pushd ${STAGING}/cmake/cmake-3.6.2
 ./configure --parallel=${PARALLELMFLAGS}
 make ${PARALLELMFLAGS}
 make install
