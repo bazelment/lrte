@@ -24,7 +24,7 @@ page. For example, to install lrtev2 with crosstool v2:
 ```
 apt-get update
 apt-get install -y apt-transport-https
-echo 'deb https://github.com/mzhaom/lrte/releases/download/v2.0_0 ./' >> /etc/apt/sources.list
+echo 'deb https://github.com/bazelment/lrte/releases/download/v2.0_0 ./' >> /etc/apt/sources.list
 apt-get update
 apt-get install -y --force-yes lrtev2-crosstoolv2-gcc-4.9 lrtev2-crosstoolv2-clang-3.7
 
@@ -59,5 +59,5 @@ For example:
 ```
 
 You can also refer to [build
-guide](https://github.com/mzhaom/lrte/wiki/Build-Guide) if you prefer
+guide](https://github.com/bazelment/lrte/wiki/Build-Guide) if you prefer
 building everything from source code for further customization.
