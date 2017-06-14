@@ -23,7 +23,7 @@ alias wget='wget -c'
 wget https://ftp.gnu.org/gnu/glibc/glibc-${glibc_version}.tar.bz2
 wget http://ftp.gnu.org/gnu/binutils/binutils-${binutils_version}.tar.bz2
 wget https://ftp.gnu.org/gnu/gcc/gcc-${gcc_version}/gcc-${gcc_version}.tar.bz2
-wget https://ftp.gnu.org/gnu/gmp/gmp-${gmp_version}a.tar.bz2
+wget https://ftp.gnu.org/gnu/gmp/gmp-${gmp_version}.tar.bz2
 wget https://ftp.gnu.org/gnu/mpfr/mpfr-${mpfr_version}.tar.bz2
 wget https://ftp.gnu.org/gnu/mpc/mpc-${mpc_version}.tar.gz
 wget http://zlib.net/zlib-${zlib_version}.tar.gz

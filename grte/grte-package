@@ -939,12 +939,12 @@ Standards-Version: 3.8.0' \
   #
   tmprules=$(mktemp -t grtepackage.XXXXXX)
   mv -f "${dir}/debian/rules" "${tmprules}"
-  if [ "${glibc_version}" != "2.21" ]
+  if [ "${glibc_version}" != "2.25" ]
   then
     echo "Please update -Xld- version to ${glibc_version}"
     exit 1
   fi
-  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.21.so/' \
+  sed -e 's/^#[ 	]*dh_fixperms$/	dh_fixperms -Xld-2.25.so/' \
       -e '/dh_shlibdeps/d' \
       -e '/dh_clean/ s/-k -d//' \
       "${tmprules}" > "${dir}/debian/rules"
