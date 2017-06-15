@@ -11,4 +11,5 @@ curl -L https://bazel.build/bazel-release.pub.gpg | apt-key add -
 # https://askubuntu.com/questions/65245/apt-get-update-only-for-a-specific-repository/65250
 apt-get update -o Dir::Etc::sourcelist="sources.list.d/bazel.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
 
-apt-get install -y bazel
+# git is used when bazel needs to get certain workspace status
+apt-get install -y bazel git
