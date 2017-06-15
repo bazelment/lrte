@@ -757,6 +757,12 @@ for file in $lafiles_64bit; do
     -i $file
 done
 
+# If we don't remove these lib64 PREFIX, it will try to find
+# /usr/lrte/v3/lib64/libmvec_nonshared.a under /usr/lrte/v3 for
+# example
+sed -e "s;${GRTEROOT}/lib64/;;g" \
+    -i ${rtlib64dir}/libm.so
+
 # Remove info and man
 rm -fr "${DSDIR}/share/info" "${DSDIR}/share/man"
 ls "${DSDIR}/share"/gcc-4.*
