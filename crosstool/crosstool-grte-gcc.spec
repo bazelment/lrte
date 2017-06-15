@@ -11,11 +11,11 @@ AutoReqProv: no
 Requires: %{grte_basename}-runtime %{grte_basename}-headers
 
 # Source0: crosstool-scripts.tar.gz
-Source0: binutils-2.25.tar.bz2
+Source0: binutils-%{binutils_version}.tar.bz2
 # Patch0: binutils-2.24-set-section-macros.patch
-Source1: gmp-6.0.0a.tar.bz2
-Source2: mpc-1.0.3.tar.gz
-Source3: mpfr-3.1.2.tar.bz2
+Source1: gmp-%{gmp_version}.tar.bz2
+Source2: mpc-%{mpc_version}.tar.gz
+Source3: mpfr-%{mpfr_version}.tar.bz2
 
 BuildRoot: %{_tmppath}/%{name}-buildroot
 
@@ -65,7 +65,7 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 
 WORK_DIR="$RPM_BUILD_DIR/$RPM_PACKAGE_NAME-$RPM_PACKAGE_VERSION"
 
-BINUTILS_SRC_SUBDIR="binutils-2.25"
+BINUTILS_SRC_SUBDIR="binutils-%{binutils_version}"
 GCC_SRC_SUBDIR="gcc-%{crosstool_gcc_version}"
 
 CFLAGS="-O2 -isystem %{grte_top}/include -L%{grte_top}/lib64"
@@ -119,9 +119,9 @@ build_binutils "$WORK_DIR/$BINUTILS_SRC_SUBDIR" "$WORK_DIR/build-binutils" \
 export PATH="${PREFIX}/bin:${PREFIX}/sbin:$PATH"
 # Checked out into upstream/ from svn://gcc.gnu.org/svn/gcc/branches/google/gcc-4_9
 cp -r %{_sourcedir}/gcc-4_9 $WORK_DIR/gcc-src
-mv $WORK_DIR/gmp-6.0.0 $WORK_DIR/gcc-src/gmp
-mv $WORK_DIR/mpc-1.0.3 $WORK_DIR/gcc-src/mpc
-mv $WORK_DIR/mpfr-3.1.2 $WORK_DIR/gcc-src/mpfr
+mv $WORK_DIR/gmp-%{gmp_version} $WORK_DIR/gcc-src/gmp
+mv $WORK_DIR/mpc-%{mpc_version} $WORK_DIR/gcc-src/mpc
+mv $WORK_DIR/mpfr-%{mpfr_version} $WORK_DIR/gcc-src/mpfr
 
 mkdir $WORK_DIR/build-gcc
 cd $WORK_DIR/build-gcc
@@ -201,5 +201,5 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 %{target_top}/x86/*
 
 %changelog
-* Mon Jun 01 2015 Ming Zhao <mzhao@luminatewireless.com>
-- Build gcc 4.9(@svn %{gcc_svn_version}) and binutils 2.25.
+* Mon Jun 12 2017 Ming Zhao <mingzhao@gmail.com>
+- Build gcc 4.9(@svn %{gcc_svn_version}) and binutils 2.28

@@ -37,7 +37,7 @@ CROSSTOOL_GCC_VERSION="4.9"
 
 # Assume the clang source code is checked out following
 # http://clang.llvm.org/get_started.html
-CROSSTOOL_CLANG_VERSION="3.7"
+CROSSTOOL_CLANG_VERSION="4.0"
 
 : ${crosstool_rpmver:="1.0"}
 # Update this each time new RPM's are built.
@@ -54,12 +54,14 @@ for pkg in runtime headers gde; do
     dpkg -i ${DEB_DIR}/${GRTEBASENAME}-${pkg}_${grte_rpmver}-${grte_rpmrel}_amd64.deb
 done
 
+# sed -e "s:/usr/lrte/v3/lib64/::g" -i /usr/lrte/v3/lib64/libm.so
+
 # Use bash as shell, other "source" command inside rpm spec will fail.
 ln -sf /bin/bash /bin/sh
 
 # install packages that are needed by building binutils and clang
 apt-get update
-apt-get install -y flex bison rpm texinfo texi2html libxml2-dev make alien
+apt-get install -y flex bison rpm texinfo texi2html libxml2-dev make alien wget
 
 function build_rpm() {
     local rpmrel=$1
@@ -79,6 +81,10 @@ function build_rpm() {
 	--define "grte_glibc_version ${glibc_version}" \
 	--define "grte_rpmver ${grte_rpmver}" \
 	--define "grte_rpmrel ${grte_rpmrel}" \
+	--define "binutils_version ${binutils_version}" \
+	--define "gmp_version ${gmp_version}" \
+	--define "mpfr_version ${mpfr_version}" \
+	--define "mpc_version ${mpc_version}" \
         --define "crosstool_scripts ${absroot}/crosstool/scripts" \
         --define "crosstool_version ${CROSSTOOL_VERSION}" \
         --define "crosstool_rpmver ${crosstool_rpmver}" \
@@ -120,10 +126,10 @@ dpkg -i ${DEB_DIR}/${GRTEBASENAME}-crosstool${CROSSTOOL_VERSION}-gcc-${CROSSTOOL
 
 # Build cmake because cmake in ubuntu 13 is too old
 mkdir -p ${STAGING}/cmake
-CMAKE_VERSION=3.3.2
+CMAKE_VERSION=3.8.2
 if [ ! -e ${CROSSTOOL_SOURCES}/cmake-${CMAKE_VERSION}.tar.gz ]; then
     pushd ${CROSSTOOL_SOURCES}
-    wget http://cmake.org/files/v3.3/cmake-${CMAKE_VERSION}.tar.gz
+    wget http://cmake.org/files/v3.8/cmake-${CMAKE_VERSION}.tar.gz
     popd
 fi
 tar zxf ${CROSSTOOL_SOURCES}/cmake-${CMAKE_VERSION}.tar.gz -C ${STAGING}/cmake

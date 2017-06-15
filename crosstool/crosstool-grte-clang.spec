@@ -84,8 +84,9 @@ export PATH="%{grte_top}/bin:%{grte_top}/sbin:$PATH"
 %{target_top}/x86/bin/*
 %{target_top}/x86/include/*
 %{target_top}/x86/lib/*
+%{target_top}/x86/libexec/*
 %{target_top}/x86/share/*
 
 %changelog
-* Mon Jun 01 2015 Release Engineer <%{maintainer_email}>
+* Mon Jun 12 2017 Release Engineer <%{maintainer_email}>
 - Clang %{crosstool_clang_version} with SVN %{clang_svn_version}.

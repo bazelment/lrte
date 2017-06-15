@@ -1,8 +1,8 @@
 Index: CMakeLists.txt
 ===================================================================
---- CMakeLists.txt	(revision 238804)
+--- CMakeLists.txt	(revision 305394)
 +++ CMakeLists.txt	(working copy)
-@@ -192,6 +192,12 @@
+@@ -239,6 +239,12 @@
    add_definitions( -DCLANG_VENDOR="${CLANG_VENDOR} " )
  endif()
  
@@ -15,37 +15,18 @@ Index: CMakeLists.txt
  set(CLANG_REPOSITORY_STRING "" CACHE STRING
    "Vendor-specific text for showing the repository the source is taken from.")
  
-Index: lib/Driver/Tools.cpp
+Index: lib/Driver/ToolChains/Linux.cpp
 ===================================================================
---- lib/Driver/Tools.cpp	(revision 238804)
-+++ lib/Driver/Tools.cpp	(working copy)
-@@ -7827,9 +7827,15 @@
-     return "/lib64/ld-linux.so.2";
-   else if (ToolChain.getArch() == llvm::Triple::x86_64 &&
-            ToolChain.getTriple().getEnvironment() == llvm::Triple::GNUX32)
-+#ifdef GRTE_ROOT
-+    return GRTE_ROOT "/libx32/ld-linux-x32.so.2";
-+  else
-+    return GRTE_ROOT "/lib64/ld-linux-x86-64.so.2";
-+#else
-     return "/libx32/ld-linux-x32.so.2";
-   else
-     return "/lib64/ld-linux-x86-64.so.2";
-+#endif
+--- lib/Driver/ToolChains/Linux.cpp	(revision 305394)
++++ lib/Driver/ToolChains/Linux.cpp	(working copy)
+@@ -577,8 +577,8 @@
+ 
+   if (Distro == Distro::Exherbo && (Triple.getVendor() == llvm::Triple::UnknownVendor ||
+                                     Triple.getVendor() == llvm::Triple::PC))
+-    return "/usr/" + Triple.str() + "/lib/" + Loader;
+-  return "/" + LibDir + "/" + Loader;
++    return GRTE_ROOT "/usr/" + Triple.str() + "/lib/" + Loader;
++  return GRTE_ROOT "/" + LibDir + "/" + Loader;
  }
  
- static void AddRunTimeLibs(const ToolChain &TC, const Driver &D,
-Index: lib/Frontend/InitHeaderSearch.cpp
-===================================================================
---- lib/Frontend/InitHeaderSearch.cpp	(revision 238804)
-+++ lib/Frontend/InitHeaderSearch.cpp	(working copy)
-@@ -512,8 +512,7 @@
-       // fudged system headers.
-       if (triple.getOS() == llvm::Triple::Solaris) 
-         AddPath("/usr/include/c++/v1/support/solaris", CXXSystem, false);
--      
--      AddPath("/usr/include/c++/v1", CXXSystem, false);
-+      AddPath(GRTE_ROOT "/include/c++/v1", CXXSystem, false);
-     } else {
-       AddDefaultCPlusPlusIncludePaths(triple, HSOpts);
-     }
+ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
