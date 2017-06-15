@@ -97,8 +97,6 @@ def main():
                         help='Directory to store the output')
     parser.add_argument('--debug', action='store_true',
                         help='Start the docker container using bash')
-    parser.add_argument('--no_build_lrte', action='store_true',
-                        help='Skip building the whole lrte')
     parser.add_argument('--lrte_prefix', default='/usr/lrte',
                         help='Directory prefix where lrte gets installed')
     parser.add_argument('--lrte_package_prefix', default='',
@@ -110,8 +108,8 @@ def main():
                         help='Steps to skip when building LRTE(which could be step1, step2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
                         help='Directory that stores original downloaded packages, like glibc code')
-    parser.add_argument('--no_build_crosstool', action='store_true',
-                        help='Skip building crosstool')
+    parser.add_argument('--actions', choices=['lrte', 'crosstool', 'check'], nargs='+',
+                        help='Select the actions to perform')
     parser.add_argument('--crosstool_skip', choices=['gcc'], action='append',
                         help='Steps to skip when building crosstool')
 
@@ -152,7 +150,8 @@ def main():
 
     lrte_output = os.path.join(args.output, 'lrte')
     lrte_output_in_docker = os.path.join(output_dir, 'lrte')
-    if not args.no_build_lrte:
+
+    if 'lrte' in args.actions:
         start_container(args.docker_image,
                         ['./build_grte.sh', args.lrte_prefix, lrte_output_in_docker],
                         workdir = topdir,
@@ -164,7 +163,7 @@ def main():
         print('deb packages: %s' % (os.path.join(lrte_output, 'results/debs')))
         print('rpm packages: %s' % (os.path.join(lrte_output, 'results/rpms')))
 
-    if not args.no_build_crosstool:
+    if 'crosstool' in args.actions:
         if not os.path.isdir(os.path.join(lrte_output, 'results/debs')):
             raise Exception(os.path.join(lrte_output, 'results/debs') + ' does not exit, please build LRTE packages first')
         env['GCC_SVN_VERSION'] = get_svn_revision(
@@ -180,6 +179,19 @@ def main():
                         ['./build_crosstool.sh', args.lrte_prefix,
                          lrte_output_in_docker,
                          sources_dir],
+                        workdir = topdir,
+                        attach_stdin = True,
+                        attach_stdout = True,
+                        attach_stderr = True,
+                        mounts = mounts,
+                        environment = env)
+
+    if 'check' in args.actions:
+        if not os.path.isdir(os.path.join(lrte_output, 'results/debs')):
+            raise Exception(os.path.join(lrte_output, 'results/debs') + ' does not exit, please build LRTE packages first')
+        start_container(args.docker_image,
+                        ['./check.sh', args.lrte_prefix,
+                         lrte_output_in_docker],
                         workdir = topdir,
                         attach_stdin = True,
                         attach_stdout = True,
