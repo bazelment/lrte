@@ -260,56 +260,6 @@ EOF
   cd ..
 }
 
-# make_deterministic_ar_wrapper INSTALL_DIR TARGET WRAPPER_NAME
-#
-# Make a wrapper around INSTALL_DIR/TARGET-ar (or INSTALL_DIR/ar if TARGET
-# is empty) that adds the 'D' (deterministic mode) flag, and removes any
-# 'u' (update) flag in ar's operation code.
-#
-# This uses an absolute path to INSTALL_DIR, so is probably not suitable
-# for installation as part of a toolchain.
-make_deterministic_ar_wrapper() {
-  local install_dir target wrapper_name wrapped_bin
-
-  install_dir="$1"
-  target="$2"
-  wrapper_name="$3"
-
-  wrapped_bin=ar
-  if [ -n "$target" ]; then
-    wrapped_bin="$target-$wrapped_bin"
-  fi
-
-  rm -f $wrapper_name
-  echo "#!/bin/sh" > $wrapper_name
-  cat >> $wrapper_name <<__EOF__
-  first="\$1"D
-  shift
-  case "\$first" in
-  *u*) first=\`echo "\$first" | sed -e s,u,,g\`
-  esac
-  exec $install_dir/bin/$wrapped_bin "\$first" "\$@"
-__EOF__
-  chmod 555 $wrapper_name
-}
-
-# make_deterministic_ranlib_wrapper INSTALL_DIR TARGET WRAPPER_NAME
-#
-# Make a wrapper for ranlib suitable for use with ar in deterministic mode.
-# In this case, ranlib should do nothing, so the wrapper invokes /bin/true
-# instead of ranlib.
-make_deterministic_ranlib_wrapper() {
-  local install_dir target wrapper_name
-
-  install_dir="$1"
-  target="$2"
-  wrapper_name="$3"
-
-  rm -f $wrapper_name
-  echo "#!/bin/true" > $wrapper_name
-  chmod 555 $wrapper_name
-}
-
 #
 # Adjust some extra glibc configure arguments based on whether or not we
 # will be supporting 2.4 kernels.
@@ -387,6 +337,7 @@ xtra_gcc_cfg=""
     --disable-shared \
     --enable-64-bit-bfd \
     --with-sysroot="${SYSROOT}" \
+    --enable-deterministic-ar \
     || error "binutils stage1 configuration failed"
   make $JFLAGS || error "binutils stage1 build failed"
   make install || error "binutils stage1 install failed"
@@ -533,11 +484,6 @@ xtra_gcc_cfg=""
   make $JFLAGS || error "gcc final stage1 build failed"
   make install || error "gcc final stage1 install failed"
 
-  make_deterministic_ar_wrapper "${STAGE1ROOT}/root" "${arch64}" \
-                                "${STAGE1ROOT}/root/bin/${arch64}-dar"
-  make_deterministic_ranlib_wrapper "${STAGE1ROOT}/root" "${arch64}" \
-                                    "${STAGE1ROOT}/root/bin/${arch64}-dranlib"
-
   PATH="${origpath}"
 }
 
@@ -563,10 +509,10 @@ xtra_gcc_cfg=""
   STAGE1CC64="${STAGE1ROOT}/root/bin/${arch64}-gcc -m64 -D__x86_64__"
   STAGE1LD="${STAGE1ROOT}/root/bin/${arch64}-ld"
   STAGE1AS="${STAGE1ROOT}/root/bin/${arch64}-as"
-  STAGE1AR="${STAGE1ROOT}/root/bin/${arch64}-dar"
+  STAGE1AR="${STAGE1ROOT}/root/bin/${arch64}-ar"
   STAGE1NM="${STAGE1ROOT}/root/bin/${arch64}-nm"
   STAGE1OBJDUMP="${STAGE1ROOT}/root/bin/${arch64}-objdump"
-  STAGE1RANLIB="${STAGE1ROOT}/root/bin/${arch64}-dranlib"
+  STAGE1RANLIB="${STAGE1ROOT}/root/bin/${arch64}-ranlib"
 
   rm -fr "${STAGE2ROOT}"
   mkdir -p "${STAGE2ROOT}"
@@ -613,6 +559,7 @@ xtra_gcc_cfg=""
     --disable-nls \
     --disable-shared \
     --enable-64-bit-bfd \
+    --enable-deterministic-ar \
     || error "binutils stage2 configuration failed"
   make $JFLAGS || error "binutils stage2 build failed"
   make install || error "binutils stage2 install failed"
@@ -729,14 +676,10 @@ xtra_gcc_cfg=""
     --disable-shared \
     --enable-64-bit-bfd \
     --with-native-lib-dirs="${STAGE2ROOT}/root/lib ${GRTEROOT}/local/lib" \
+    --enable-deterministic-ar \
     || error "binutils stage2 rebuild configuration failed"
   make $JFLAGS || error "binutils stage2 rebuild build failed"
   make install || error "binutils stage2 rebuild install failed"
-
-  make_deterministic_ar_wrapper "${STAGE2ROOT}/root" "" \
-                                "${STAGE2ROOT}/root/bin/dar"
-  make_deterministic_ranlib_wrapper "${STAGE2ROOT}/root" "" \
-                                    "${STAGE2ROOT}/root/bin/dranlib"
 
   #
   # We now have glibc and binutils, which uses that glibc, compiled and
@@ -810,10 +753,10 @@ xtra_gcc_cfg=""
   STAGE2CXX64="${STAGE2ROOT}/root/bin/g++ -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
   STAGE2LD="${STAGE2ROOT}/root/bin/ld"
   STAGE2AS="${STAGE2ROOT}/root/bin/as ${DEBUG_PREFIX_MAP_GAS_FLAGS}"
-  STAGE2AR="${STAGE2ROOT}/root/bin/dar"
+  STAGE2AR="${STAGE2ROOT}/root/bin/ar"
   STAGE2NM="${STAGE2ROOT}/root/bin/nm"
   STAGE2OBJDUMP="${STAGE2ROOT}/root/bin/objdump"
-  STAGE2RANLIB="${STAGE2ROOT}/root/bin/dranlib"
+  STAGE2RANLIB="${STAGE2ROOT}/root/bin/ranlib"
   SUPPORTED_LOCALES="en_US/ISO-8859-1 en_US.UTF-8/UTF-8"
 
   rm -fr "${FINALROOT}" "${GRTEROOT}"
@@ -1093,6 +1036,7 @@ xtra_gcc_cfg=""
     --enable-shared \
     --enable-64-bit-bfd \
     --with-native-lib-dirs="${GRTEROOT}/lib ${GRTEROOT}/local/lib" \
+    --enable-deterministic-ar \
     || error "binutils final configuration failed"
   make $JFLAGS || error "binutils final build failed"
   idir="${FINALROOT}/packaging/binutils"
