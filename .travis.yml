@@ -20,7 +20,7 @@ addons:
       # There packages are needed to build lrte, see  build_grte.sh
       - texinfo
       - texi2html
-      - x2-utils
+      - xz-utils
       - make
       - gcc
       - g++
