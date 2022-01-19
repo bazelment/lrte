@@ -33,7 +33,7 @@ mkdir -p "${OSRC}"
 cd "${OSRC}"
 
 tar zxf ${TAR_DIR}/zlib-${zlib_version}.tar.gz
-tar jxf ${TAR_DIR}/gcc-${gcc_version}.tar.bz2
+tar Jxf ${TAR_DIR}/gcc-${gcc_version}.tar.xz
 tar jxf ${TAR_DIR}/gmp-${gmp_version}.tar.bz2
 tar jxf ${TAR_DIR}/mpfr-${mpfr_version}.tar.bz2
 tar zxf ${TAR_DIR}/mpc-${mpc_version}.tar.gz
