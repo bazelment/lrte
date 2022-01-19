@@ -104,8 +104,8 @@ def main():
                         'the packages are name like lrtev1-runtime_1.0-3_amd64.deb, '
                         'setting a prefix like xyz will name the package like '
                         'xyzlrtev1-runtime_1.0-3_amd64.deb')
-    parser.add_argument('--lrte_skip', choices=['step1', 'step2', 'final'], action='append',
-                        help='Steps to skip when building LRTE(which could be step1, step2, final)')
+    parser.add_argument('--lrte_skip', choices=['stage1', 'stage2', 'final'], action='append',
+                        help='Stage to skip when building LRTE(which could be stage1, stage2, final)')
     parser.add_argument('--upstream_source', default=os.path.join(os.path.dirname(__file__), 'upstream'),
                         help='Directory that stores original downloaded packages, like glibc code')
     parser.add_argument('--actions', choices=['lrte', 'crosstool', 'check'], nargs='+',
