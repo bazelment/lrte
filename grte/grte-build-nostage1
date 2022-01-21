@@ -132,11 +132,6 @@ m=`uname -m`
   usage "ERROR: badly populated source directory (missing gcc and glibc)."
 }
 
-[ "${grte_support_kernel24}" = "0" ] || {
-  [ -d "${OSRC}/linux-libc-headers-${headers24}" ] || {
-    usage "ERROR: badly populated source directory (missing 2.4 headers)."
-  }
-}
 
 [ -d "${OSRC}/linux-libc-headers-${headers26}" ] || {
   usage "ERROR: badly populated source directory (missing 2.6 headers)."
@@ -277,7 +272,7 @@ xtra_gcc_cfg=""
     xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
 }
 
-true && {
+[ -z "${PRESERVE_BUILD}" ] && {
   #
   # The sources need to be writable ... copy the original sources into a new
   # location and make sure they are all writable.
@@ -330,7 +325,6 @@ true && {
   STAGE1OBJDUMP="objdump"
   STAGE1RANLIB="ranlib"
   
-
   rm -fr "${STAGE2ROOT}"
   mkdir -p "${STAGE2ROOT}"
   cd "${STAGE2ROOT}"
@@ -438,11 +432,12 @@ true && {
   mkdir binutils-rebuild
   cd binutils-rebuild
   CC="${STAGE1CC64} -isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64" \
+  CFLAGS="-isystem ${STAGE2ROOT}/root/include -Wl,-nostdlib -L${STAGE2ROOT}/root/lib64 -Wl,--dynamic-linker=${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2 -Wl,--rpath=${STAGE2ROOT}/root/lib64" \
   LD="${STAGE1LD}" \
   AS="${STAGE1AS}" \
   NM="${STAGE1NM}" \
   AR="${STAGE1AR}" \
-  LDFLAGS="-Wl,-nostdlib -Wl,-I,${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2" \
+  LDFLAGS="-Wl,-q" \
   OBJDUMP="${STAGE1OBJDUMP}" \
   RANLIB="${STAGE1RANLIB}" \
   "${SRC}/binutils-${binutils_version}/configure" \
@@ -474,6 +469,11 @@ true && {
   #
   PATH="${STAGE2ROOT}/root/bin:${STAGE1ROOT}/root/bin:${origpath}"
   cd "${STAGE2ROOT}"
+  # bootstrap has to be disabled because somehow ldflags can't be
+  # passed to gcc stage2 compilation, At the result, the generated
+  # binary is linked against glibc under new root directory, but the
+  # dynamic-linker was not set properly.
+  #
   # --with-startfile-prefix-1="${STAGE2ROOT}/root/lib"
   #
   # with-startfile-prefix-1 is unsupported anymore, so we have to
@@ -482,25 +482,30 @@ true && {
   rm -fr gcc-build
   mkdir gcc-build
   cd gcc-build
-  CC="${STAGE1CC64} -isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64" \
-  LDFLAGS="-Wl,-I,${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2" \
-  CFLAGS="-isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64 -DSTANDARD_INCLUDE_DIR=\\\\\\\"\"${STAGE2ROOT}/root/include\\\\\\\"\"" \
+  CC="${STAGE1CC64}" \
+  CFLAGS="-isystem ${STAGE2ROOT}/root/include -Wl,-nostdlib -Wl,--dynamic-linker=${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2 -Wl,--rpath=${STAGE2ROOT}/root/lib64 -DSTANDARD_INCLUDE_DIR=\\\\\\\"\"${STAGE2ROOT}/root/include\\\\\\\"\"" \
+  LDFLAGS="-Wl,-q -Wl,--dynamic-linker=${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2 -Wl,--rpath=${STAGE2ROOT}/root/lib64" \
   AR="${STAGE2AR}" \
   RANLIB="${STAGE2RANLIB}" \
   AR_FOR_TARGET="${STAGE2AR}" \
   RANLIB_FOR_TARGET="${STAGE2RANLIB}" \
   "${SRC}/gcc-${gcc_version}/configure" \
+    --with-boot-ldflags="-Wl,--dynamic-linker=${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2 -Wl,--rpath=${STAGE2ROOT}/root/lib64" \
+    --with-ld="${STAGE2ROOT}/root/bin/ld" \
     --prefix="${STAGE2ROOT}/root" \
     --build="${arch64}" \
     --host="${arch64}" \
     --target="${arch64}" \
     --enable-languages=c,c++ \
     --disable-nls \
+    --without-zstd \
+    --without-isl \
     --enable-shared \
     --enable-__cxa_atexit \
     --with-native-system-header-dir="${STAGE2ROOT}/root/include" \
     --with-local-prefix="${GRTEROOT}/local" \
     --with-debug-prefix-map="${DEBUG_PREFIX_MAPPINGS}" \
+    --disable-bootstrap \
     ${xtra_gcc_cfg} \
     || error "gcc stage2 configuration failed"
   make $JFLAGS \
@@ -892,54 +897,6 @@ true && {
   cp libz.a "${GRTEROOT}/lib64/libz.a"
   cp libz.a "${idir}/lib64/libz.a"
   cp zlib.h zconf.h "${idir}/include64"
-
-  #
-  # Before we can compile the full GCC suite, we need to compile
-  # infozip, as it is used by the Java stuff for creating the jar
-  # command. We also need GMP and MPFR in order for the Fortran compiler
-  # to build. So we do all of these now, in that order, but only if we
-  # are supporting the additional languages.
-  #
-  [ "${grte_java}" = "0" ] || {
-  #
-  # Next up is InfoZIP (for jar and Java)
-  #
-  cd "${FINALROOT}"
-  rm -fr infozip-build
-  mkdir infozip-build
-  cd infozip-build
-  mkdir zip30 unzip60
-  cd "${SRC}/zip30e"
-  find . | cpio -pdum "${FINALROOT}/infozip-build/zip30" 2> /dev/null
-  cd "${SRC}/unzip60c"
-  find . | cpio -pdum "${FINALROOT}/infozip-build/unzip60" 2> /dev/null
-
-  idir="${FINALROOT}/packaging/infozip"
-  rm -fr "${idir}"
-  mkdir -p "${idir}${GRTEROOT}"
-  idir="${idir}${GRTEROOT}"
-  mkdir "${idir}/bin"
-
-  cd "${FINALROOT}/infozip-build/unzip60"
-  rm -f Makefile
-  ln -s unix/Makefile .
-
-  make generic \
-  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
-  LD="\$(CC) -Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
-  CF="-O3 -I. -DUNIX" \
-    || error "unzip build failed"
-  cp unzip funzip "${GRTEROOT}/bin"
-  cp unzip funzip "${idir}/bin"
-
-  cd ../zip30
-  make -f unix/Makefile generic \
-    CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
-    CFLAGS="-O3 -I. -DUNIX -Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
-    || error "zip build failed"
-  cp zip zipnote zipsplit zipcloak "${GRTEROOT}/bin"
-  cp zip zipnote zipsplit zipcloak "${idir}/bin"
-  } # End of if we are not doing Java
 
   [ "${grte_python_support}" = "0" ] || {  
   #
