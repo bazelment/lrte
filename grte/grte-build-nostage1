@@ -1,0 +1,1627 @@
+#!/bin/bash
+
+#
+# This script builds the host portion of the Google Runtime Environment
+# (GRTE) and the GRTE Development Environment (GDE). Currently, 64-bit
+# Intel is the only supported host environment for the GDE. This script
+# will, however, build both the 32- and 64-bit runtimes for Intel.
+#
+# Great care must be taken to build everything hermetically. To this
+# end, we end up recompiling some things several times in order to ensure
+# that we are in fact using tools freshly built from the GRTE source.
+# This can take a long time.
+
+# Take input from /dev/null, since some configure scripts behave differently
+# depending on stdin.  (Specifically the ncurses check for working 'poll'
+# attempts to poll stdin, which works differently if stdin is /dev/null,
+# a tty, or a tty with pasted input waiting to be read.)
+exec < /dev/null
+
+# stop on any error, echo commands.
+set -ex
+
+# Set locale to C, so that e.g., 'sort' will work consistently regardless
+# of system and user environment settings.
+LC_ALL=C
+export LC_ALL
+
+# The 'gzip' environment variable passes flags to gzip.  We set -n to
+# avoid putting timestamps and filenames in gzip files.  This enables
+# deterministic builds.
+GZIP=-n
+export GZIP
+
+absname=`readlink -f "$0"`
+absroot="${absname%/*}"
+
+[ -f "${absroot}/grte.cfg" ] || {
+  error "could not find ${absroot}/grte.cfg"
+}
+
+. "${absroot}/grte.cfg"
+
+function warn {
+  echo "" >&2
+  if [ $# -eq 0 ] ;then
+    echo -n "WARNING: " >&2
+    cat >&2
+  else
+    echo "WARNING: $@" >&2
+  fi
+  echo "" >&2
+}
+
+function error {
+  # stop printing to get a clear error message
+  set +x
+  echo "" >&2
+  if [ $# -eq 0 ] ;then
+    echo -n "ERROR: " >&2
+    cat >&2
+  else
+    echo "ERROR: $@" >&2
+  fi
+  exit 1
+}
+
+function usage {
+  # stop printing to get a clear error message
+  set +x
+  cat <<EOF
+Usage: host-build GRTEROOT GRTEBUILD
+
+GRTEROOT  is the desired GRTE prefix. This prefix will have the string
+          'v${GRTEVERSION}' appended to it, so an argument of /usr/grte
+          will become /usr/grte/v${GRTEVERSION}. This MUST be specified
+          as an absolute path.
+GRTEBUILD is the full path to the directory in which the builds will take
+          place. This script will indescriminately remove this directory
+          very early on in its life unless "\$PRESERVE_BUILD" is non-empty.
+
+EOF
+
+  [ -n "$@" ] && error "$@"
+  exit 1
+}
+
+[ $# -eq 2 ] || usage
+
+case "$1" in
+  *\.\.*)  error "GRTEROOT must be an absolute path name" ;;
+  /*) ;;
+  *)       error "GRTEROOT must be an absolute path name" ;;
+esac
+
+GRTEROOT="${1}/v${GRTEVERSION}"
+OSRC="${absroot}/sources"
+BUILD=`readlink -f "$2"`
+SRC="${BUILD}/sources"
+
+# release builds must be done in the following directory.  If the
+# build isn't in that directory, we warn just in case.
+REQUIRED_RELEASE_BUILD_DIR=/local/grte-release-build
+
+origpath="${PATH}"
+
+#
+# Canonical architecture names
+#
+arch32="i686-linux-gnu"
+arch64="x86_64-linux-gnu"
+arch32build="i686-build-linux-gnu"
+arch64build="x86_64-build-linux-gnu"
+
+#
+# Set the final language list
+#
+languages="c,c++"
+
+[ "${grte_java}" = "0" ] || languages="${languages},java"
+
+#
+# Some common options used when compiling things
+lfsopts="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64"
+
+m=`uname -m`
+[ "${m}" = "x86_64" ] || usage "build system must be x86_64"
+
+#
+# Sanity check the arguments pased to the script
+#
+[ -d "${OSRC}/gcc-${gcc_version}" -a -d "${OSRC}/glibc-${glibc_version}" ] || {
+  usage "ERROR: badly populated source directory (missing gcc and glibc)."
+}
+
+[ "${grte_support_kernel24}" = "0" ] || {
+  [ -d "${OSRC}/linux-libc-headers-${headers24}" ] || {
+    usage "ERROR: badly populated source directory (missing 2.4 headers)."
+  }
+}
+
+[ -d "${OSRC}/linux-libc-headers-${headers26}" ] || {
+  usage "ERROR: badly populated source directory (missing 2.6 headers)."
+}
+
+[ -d "${OSRC}/binutils-${binutils_version}" ] || {
+  usage "ERROR: badly populated source directory (missing binutils)."
+}
+
+#
+# Unless we've been asked not to, remove the entire build directory.
+#
+[ -n "${SKIP_STAGE2}" ] && PRESERVE_BUILD=1
+[ -n "${SKIP_FINAL}" ] && PRESERVE_BUILD=1
+[ -z "${PRESERVE_BUILD}" ] && {
+  rm -fr "${BUILD}" || {
+    error "failed to remove build directory"
+  }
+  [ -d "${BUILD}" ] && {
+    error "failed to remove build directory"
+  }
+}
+
+[ -d "${BUILD}" ] || mkdir -p "${BUILD}" || {
+  error "failed to create build directory"
+}
+
+[ -w "${BUILD}" ] || {
+  error "Build directory not writable"
+}
+
+[ -w "${1}" ] || {
+  error "GRTEROOT (${1}) not writable"
+}
+
+# Warn about various things that might make a bad release build.
+# These are here until the actual release build process is fully
+# automated.
+actual_build_dir="`cd ${BUILD} && pwd -P`"
+[ "$actual_build_dir" = "$REQUIRED_RELEASE_BUILD_DIR" ] || {
+  warn << __EOF__
+If you are making a release build, you're doing it wrong.
+build dir is $actual_build_dir, must be $REQUIRED_RELEASE_BUILD_DIR.
+See $absroot/README for details.
+__EOF__
+}
+[ -z "${PRESERVE_BUILD}" ] || {
+  warn "not doing a clean build (PRESERVE_BUILD set)."
+}
+
+STAGE1ROOT="${BUILD}/stage1"
+STAGE2ROOT="${BUILD}/stage2"
+FINALROOT="${BUILD}/final"
+
+# Set up mappings from actual source location to the location where
+# the sources will be installed for the debuginfo package.  Note that
+# we have to include stage2, because some stage2 bits (gcc, glibc)
+# survive into the final binaries.
+DEBUG_PREFIX_MAPPINGS=
+DEBUG_PREFIX_MAP_GCC_FLAGS=
+DEBUG_PREFIX_MAP_GAS_FLAGS=
+for mapping in "${SRC}=${GRTEROOT}/debug-src/src" \
+               "${STAGE2ROOT}=${GRTEROOT}/debug-src/stage2" \
+               "${FINALROOT}=${GRTEROOT}/debug-src/final"; do
+  DEBUG_PREFIX_MAPPINGS="${DEBUG_PREFIX_MAPPINGS} ${mapping}"
+  DEBUG_PREFIX_MAP_GCC_FLAGS="${DEBUG_PREFIX_MAP_GCC_FLAGS} -fdebug-prefix-map=${mapping}"
+  DEBUG_PREFIX_MAP_GAS_FLAGS="${DEBUG_PREFIX_MAP_GAS_FLAGS} --debug-prefix-map=${mapping}"
+done
+
+#
+# The kernel headers are mostly architecture neutral except for the
+# asm directory. Its a very poor design of headers that they are ever
+# included at all, but we have to live with what we have. This function,
+# when pointed at a directory that contains the header files from the
+# linux-libc-headers archive, will create an asm/ directory that is
+# architecture-neutral, by creating a small wrapper for every header
+# found in asm-i386 and asm-x86_64.
+#
+fix_asm_headers() {
+  [ -d "asm" ] && return 0
+  mkdir asm
+  cd asm-i386
+  for file in *; do
+   [ -f $file ] || continue
+   [ -f ../asm-x86_64/$file ] && {
+     cat > ../asm/$file <<EOF
+/* Automatically generated by GRTE build script */
+#if defined(__x86_64__) || !defined(__i386__)
+# include <asm-x86_64/$file>
+#else
+# include <asm-i386/$file>
+#endif
+EOF
+   } || {
+     cat > ../asm/$file <<EOF
+/* Automatically generated by GRTE build script */
+#if defined(__x86_64__) || !defined(__i386__)
+# error $file not available on x86_64
+#else
+# include <asm-i386/$file>
+#endif
+EOF
+   }
+  done
+
+  cd ../asm-x86_64
+  for file in *; do
+   [ -f $file ] || continue
+   [ -f ../asm/$file ] || {
+     cat > ../asm/$file <<EOF
+/* Automatically generated by GRTE build script */
+#if defined(__x86_64__) || !defined(__i386__)
+# include <asm-x86_64/$file>
+#else
+# error $file not available on ix86
+#endif
+EOF
+   }
+  done
+  cd ..
+}
+
+#
+# Adjust some extra glibc configure arguments based on whether or not we
+# will be supporting 2.4 kernels.
+#
+xtra_glibc32_cfg=""
+xtra_glibc32_cfg="${xtra_glibc32_cfg} --enable-kernel=${grte_kernel26}"
+glibcdir="2.6"
+[ "${grte_support_kernel24}" = "0" ] || {
+  xtra_glibc32_cfg="--enable-add-ons=linuxthreads"
+  xtra_glibc32_cfg="${xtra_glibc32_cfg} --enable-kernel=${grte_kernel24}"
+  glibcdir="2.4"
+}
+
+xtra_gcc_cfg=""
+[ "${grte_m32}" = "0" ] && {
+    xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
+}
+
+true && {
+  #
+  # The sources need to be writable ... copy the original sources into a new
+  # location and make sure they are all writable.
+  #
+  echo "Copying sources to temporary build location"
+  rm -fr "${SRC}"
+  mkdir -p "${SRC}"
+  cd "${OSRC}"
+  find . -depth -print | cpio -pdum "${SRC}" > /dev/null 2>&1
+  cp "${absroot}/argv0switch.c" "${SRC}"
+  chmod -Rf u+w "${SRC}"
+}
+
+#
+# The first order of business is to compile a binutils/gcc combination
+# for x86_64 using whatever underlying host compiler is present. This is
+# built in a temporary staging area.
+# This is the stage 1 bootstrap compiler, so things can be fairly minimal.
+# This very early bootstrap is needed because the current host environment
+# may not even have a 64-bit development environment, so we need to build
+# this first version of the compiler and binutils that can target both
+# 32 and 64 bit.
+#
+
+#
+# Now that the stage 1 mini-environment is available, we can do the first
+# real bootstrap environment. This differs from the stage 1 environment in
+# that it will be compiled with a known compiler (the stage 1 compiler)
+# and tool chain, and it will be a native hosted compiler not a cross-
+# compiler. It will, however, be rooted in the staging area. Once again
+# the environment we create here is a minimal one to ensure we have a
+# base compiler that was built with a known set of good tools and compiler.
+#
+# The important thing to know about how things are configured here is that
+# the RTLD for glibc will be configured to be located in the staging
+# area not in /lib or /lib64, so that when we use the compilers in the
+# final stage, we are actually using the stuff we just built and nothing
+# from the system.
+#
+
+[ -z "${SKIP_STAGE2}" ] && {
+  PATH="${STAGE1ROOT}/root/bin:${origpath}"
+
+  STAGE1CC32="gcc -m32"
+  STAGE1CC64="gcc -m64 -D__x86_64__"
+  STAGE1LD="ld"
+  STAGE1AS="as"
+  STAGE1AR="ar"
+  STAGE1NM="nm"
+  STAGE1OBJDUMP="objdump"
+  STAGE1RANLIB="ranlib"
+  
+
+  rm -fr "${STAGE2ROOT}"
+  mkdir -p "${STAGE2ROOT}"
+  cd "${STAGE2ROOT}"
+  mkdir root
+
+  #
+  # First up is a fresh set of 2.6 kernel headers. At this stage we're
+  # still only building for 2.6. Only in the last stage do we build for both
+  # 2.4 and 2.6.
+  #
+  cd "${STAGE2ROOT}/root"
+  rm -fr include
+  mkdir include
+  cd "${SRC}/linux-libc-headers-${headers26}/include"
+  cp -r * "${STAGE2ROOT}/root/include"
+  cd "${STAGE2ROOT}/root/include"
+  fix_asm_headers
+  mkdir sys
+  cp linux/capability.h sys
+
+  #
+  # The next thing we build is a new binutils. This will be compiled
+  # in 64-bit mode and installed into a temporary location. When we
+  # compile glibc below, we will tell it to use this temporary location
+  # and then rebuild binutils to use the new libc once it's done.
+  #
+  cd "${STAGE2ROOT}"
+  rm -fr binutils-build bnu
+  mkdir binutils-build bnu
+  cd binutils-build
+  CC="${STAGE1CC64}" \
+  LD="${STAGE1LD}" \
+  AS="${STAGE1AS}" \
+  NM="${STAGE1NM}" \
+  AR="${STAGE1AR}" \
+  OBJDUMP="${STAGE1OBJDUMP}" \
+  RANLIB="${STAGE1RANLIB}" \
+  "${SRC}/binutils-${binutils_version}/configure" \
+    --prefix="${STAGE2ROOT}/bnu" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --build="${arch64}" \
+    --disable-nls \
+    --disable-shared \
+    --enable-64-bit-bfd \
+    --enable-deterministic-ar \
+    || error "binutils stage2 configuration failed"
+  make $JFLAGS || error "binutils stage2 build failed"
+  make install || error "binutils stage2 install failed"
+
+  #
+  # Put the new binutils first in the path for when we configure glibc.
+  #
+  PATH="${STAGE2ROOT}/bnu/bin:${PATH}"
+
+  #
+  # Now we build glibc, both 32 and 64 bit versions.
+  #
+  # Some of the bits created here survive into the binaries built during
+  # the final build stage, so we map filename prefixes in the debug info.
+  #
+
+  cd "${STAGE2ROOT}"
+  rm -fr glibc-build64
+  mkdir glibc-build64
+  cd glibc-build64
+  echo "slibdir=${STAGE2ROOT}/root/lib64" > configparms
+  echo "libc_cv_forced_unwind=yes" > config.cache
+  echo "libc_cv_c_cleanup=yes" >> config.cache
+  CC="${STAGE1CC64} ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
+  LD="${STAGE1LD}" \
+  AS="${STAGE1AS} ${DEBUG_PREFIX_MAP_GAS_FLAGS}" \
+  NM="${STAGE1NM}" \
+  AR="${STAGE1AR}" \
+  OBJDUMP="${STAGE1OBJDUMP}" \
+  RANLIB="${STAGE1RANLIB}" \
+  "${SRC}/glibc-${glibc_version}/configure" \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --prefix="${STAGE2ROOT}/root" \
+    --libdir="\${prefix}/lib64" \
+    --with-headers="${STAGE2ROOT}/root/include" \
+    --cache-file=config.cache \
+    --without-cvs \
+    --disable-profile \
+    --disable-debug \
+    --disable-build-nscd \
+    --disable-nscd \
+    --without-gd \
+    --with-tls \
+    --with-__thread \
+    --enable-kernel=${grte_kernel26} \
+    || error "glibc 64-bit stage2 configure failed"
+  make AR="${STAGE1AR}" RANLIB="${STAGE1RANLIB}" PARALLELMFLAGS="${JFLAGS}" \
+    || error "glibc 64-bit stage2 build failed"
+  make AR="${STAGE1AR}" RANLIB="${STAGE1RANLIB}" install \
+    || error "glibc 64-bit stage2 install failed"
+
+  #
+  # Now build binutils again, this time using the glibc we just created.
+  #
+  cd "${STAGE2ROOT}"
+  rm -fr binutils-rebuild
+  mkdir binutils-rebuild
+  cd binutils-rebuild
+  CC="${STAGE1CC64} -isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64" \
+  LD="${STAGE1LD}" \
+  AS="${STAGE1AS}" \
+  NM="${STAGE1NM}" \
+  AR="${STAGE1AR}" \
+  LDFLAGS="-Wl,-nostdlib -Wl,-I,${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2" \
+  OBJDUMP="${STAGE1OBJDUMP}" \
+  RANLIB="${STAGE1RANLIB}" \
+  "${SRC}/binutils-${binutils_version}/configure" \
+    --prefix="${STAGE2ROOT}/root" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --build="${arch64}" \
+    --disable-nls \
+    --disable-shared \
+    --enable-64-bit-bfd \
+    --with-native-lib-dirs="${STAGE2ROOT}/root/lib ${GRTEROOT}/local/lib" \
+    --enable-deterministic-ar \
+    || error "binutils stage2 rebuild configuration failed"
+  make $JFLAGS || error "binutils stage2 rebuild build failed"
+  make install || error "binutils stage2 rebuild install failed"
+
+  #
+  # We now have glibc and binutils, which uses that glibc, compiled and
+  # ready to go. We can now build gcc. We build both C and C++ so that
+  # when we do the final stage build next, we can build the various
+  # support libraries such a MPFR correctly.
+  #
+  # Some of the bits created here survive into the binaries built during
+  # the final build stage, so we map filename prefixes in the debug info.
+  #
+  # Note that this is a bootstrap build, so we need to set BOOT_CFLAGS
+  # in the 'make' environment so that debug prefixes in the post-stage1
+  # builds are mapped properly.
+  #
+  PATH="${STAGE2ROOT}/root/bin:${STAGE1ROOT}/root/bin:${origpath}"
+  cd "${STAGE2ROOT}"
+  # --with-startfile-prefix-1="${STAGE2ROOT}/root/lib"
+  #
+  # with-startfile-prefix-1 is unsupported anymore, so we have to
+  # patch the Makefile.in
+  sed -e "s:^DRIVER_DEFINES = :DRIVER_DEFINES = -DSTANDARD_STARTFILE_PREFIX_1=\\\\\\\"${STAGE2ROOT}/root/lib64/\\\\\\\" -DSTANDARD_STARTFILE_PREFIX_2=\\\\\\\"${STAGE2ROOT}/root/lib/\\\\\\\" :" ${SRC}/gcc-Makefile.in.orig > ${SRC}/gcc-${gcc_version}/gcc/Makefile.in
+  rm -fr gcc-build
+  mkdir gcc-build
+  cd gcc-build
+  CC="${STAGE1CC64} -isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64" \
+  LDFLAGS="-Wl,-I,${STAGE2ROOT}/root/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-isystem ${STAGE2ROOT}/root/include -L${STAGE2ROOT}/root/lib64 -DSTANDARD_INCLUDE_DIR=\\\\\\\"\"${STAGE2ROOT}/root/include\\\\\\\"\"" \
+  AR="${STAGE2AR}" \
+  RANLIB="${STAGE2RANLIB}" \
+  AR_FOR_TARGET="${STAGE2AR}" \
+  RANLIB_FOR_TARGET="${STAGE2RANLIB}" \
+  "${SRC}/gcc-${gcc_version}/configure" \
+    --prefix="${STAGE2ROOT}/root" \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --enable-languages=c,c++ \
+    --disable-nls \
+    --enable-shared \
+    --enable-__cxa_atexit \
+    --with-native-system-header-dir="${STAGE2ROOT}/root/include" \
+    --with-local-prefix="${GRTEROOT}/local" \
+    --with-debug-prefix-map="${DEBUG_PREFIX_MAPPINGS}" \
+    ${xtra_gcc_cfg} \
+    || error "gcc stage2 configuration failed"
+  make $JFLAGS \
+    BOOT_CFLAGS="-g -O2 ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
+    || error "gcc stage2 build failed"
+  make install || error "gcc stage2 install failed"
+
+  PATH="${origpath}"
+}
+
+#
+# Now for the final stage. This is where we build and package the entire
+# thing. Note that the build order is a little different here because we
+# do not need to concern ourselves with avoiding the underlying system
+# as all the tools created in stage 2 are crafted to only look in the
+# right places.
+#
+# Please note that $FINALROOT is where we do the build and packaging,
+# it is not where we install things. That is the first argument to this
+# script, and is $GRTEROOT. We remove the entire GRTEROOT during this
+# build.
+#
+[ -z "${SKIP_FINAL}" ] && {
+  PATH="${STAGE2ROOT}/root/bin:${origpath}"
+  STAGE2CC32="${STAGE2ROOT}/root/bin/gcc -m32 -march=pentium3 -mtune=pentium4 ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+  STAGE2CC64="${STAGE2ROOT}/root/bin/gcc -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+  STAGE2CXX32="${STAGE2ROOT}/root/bin/g++ -m32 -march=pentium3 -mtune=pentium4 ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+  STAGE2CXX64="${STAGE2ROOT}/root/bin/g++ -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+  STAGE2LD="${STAGE2ROOT}/root/bin/ld"
+  STAGE2AS="${STAGE2ROOT}/root/bin/as ${DEBUG_PREFIX_MAP_GAS_FLAGS}"
+  STAGE2AR="${STAGE2ROOT}/root/bin/ar"
+  STAGE2NM="${STAGE2ROOT}/root/bin/nm"
+  STAGE2OBJDUMP="${STAGE2ROOT}/root/bin/objdump"
+  STAGE2RANLIB="${STAGE2ROOT}/root/bin/ranlib"
+  SUPPORTED_LOCALES="en_US/ISO-8859-1 en_US.UTF-8/UTF-8"
+
+  rm -fr "${FINALROOT}" "${GRTEROOT}"
+  mkdir -p "${FINALROOT}/packaging" "${GRTEROOT}"
+
+  #
+  # The headers we package and ship are the 2.6 headers. However, during
+  # the construction of libc below, we will need to reference both 2.4
+  # and 2.6 headers, for the two ways in which we compile libc (thus libc
+  # is compiled 4 times: one for linuxthreads and one for NPTL for both 32
+  # and 64 bit).
+  #
+  rm -fr "${GRTEROOT}/include"
+  mkdir "${GRTEROOT}/include"
+  cd "${SRC}/linux-libc-headers-${headers26}/include"
+  cp -r * "${GRTEROOT}/include"
+  cd "${GRTEROOT}/include"
+  fix_asm_headers
+  mkdir sys
+  cp linux/capability.h sys
+
+  cd "${FINALROOT}"
+  rm -fr headers24 headers26
+  mkdir headers26
+  [ "${grte_support_kernel24}" = "0" ] || {
+    mkdir headers24
+  }
+
+  cd "${SRC}/linux-libc-headers-${headers26}/include"
+  cp -r * "${FINALROOT}/headers26"
+  cd "${FINALROOT}/headers26"
+  fix_asm_headers
+  mkdir sys
+  cp linux/capability.h sys
+
+  [ "${grte_support_kernel24}" = "0" ] || {
+    cd "${SRC}/linux-libc-headers-${headers24}/include"
+    cp -r * "${FINALROOT}/headers24"
+    cd "${FINALROOT}/headers24"
+    fix_asm_headers
+    mkdir sys
+    cp linux/capability.h sys
+  }
+
+  #
+  # Now we can begin the construction of glibc for the final builds.
+  # We don't install all variants into $GRTEROOT during the build,
+  # as we only care about 2.6 based machines (they are the only
+  # supported build platform). But we do install the 2.6 based variants
+  # as we go along so that we have a libc in place to reference when
+  # we start compiling the utilities and libraries.
+  #
+  # First the 32-bit versions of glibc. First we do the 2.4 kernel
+  # version and then the 2.6 kernel version with TLS support that
+  # we also install into $GRTEROOT.
+  #
+  [ "${grte_support_kernel24}" = "0" ] || {
+    cd "${FINALROOT}"
+    rm -fr glibc32-24-build
+    mkdir glibc32-24-build
+    cd glibc32-24-build
+    echo "slibdir=${GRTEROOT}/lib" > configparms
+    echo "libc_cv_forced_unwind=yes" > config.cache
+    echo "libc_cv_c_cleanup=yes" >> config.cache
+    CC="${STAGE2CC32}" \
+    LD="${STAGE2LD}" \
+    AS="${STAGE2AS}" \
+    NM="${STAGE2NM}" \
+    AR="${STAGE2AR}" \
+    OBJDUMP="${STAGE2OBJDUMP}" \
+    RANLIB="${STAGE2RANLIB}" \
+    CFLAGS="-O3 -g -march=pentium3 -mtune=pentium4" \
+    "${SRC}/glibc-${glibc_version}/configure" \
+      --build="${arch32}" \
+      --host="${arch32}" \
+      --target="${arch32}" \
+      --prefix="${GRTEROOT}" \
+      --libdir="\${prefix}/lib" \
+      --with-headers="${FINALROOT}/headers24" \
+      --cache-file=config.cache \
+      --without-cvs \
+      --without-gd \
+      --enable-add-ons=libidn \
+      --enable-static-nss \
+      --with-tls \
+      --with-__thread \
+      --enable-kernel=${grte_kernel24} \
+      || error "glibc 32-bit (2.4) final configure failed"
+    make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" PARALLELMFLAGS="${JFLAGS}" \
+      || error "glibc 32-bit (2.4) final build failed"
+    idir="${FINALROOT}/packaging/glibc/2.4/32bit"
+    rm -fr "${idir}"
+    mkdir -p "${idir}"
+    make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+      install_root="${idir}" \
+      || error "glibc 32-bit (2.4) final install failed"
+    make localedata/install-locales install_root="${idir}" \
+      SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+      || error "glibc 32-bit (2.4) final localedata install failed"
+  } # End of if we require 2.4 kernel support
+
+  cd "${FINALROOT}"
+  [ "${grte_m32}" = "0" ] || {
+  rm -fr glibc32-26-build
+  mkdir glibc32-26-build
+  cd glibc32-26-build
+  echo "slibdir=${GRTEROOT}/lib" > configparms
+  echo "libc_cv_forced_unwind=yes" > config.cache
+  echo "libc_cv_c_cleanup=yes" >> config.cache
+  CC="${STAGE2CC32}" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  CFLAGS="-O3 -g -march=pentium3 -mtune=pentium4" \
+  "${SRC}/glibc-${glibc_version}/configure" \
+    --build="${arch32}" \
+    --host="${arch32}" \
+    --target="${arch32}" \
+    --prefix="${GRTEROOT}" \
+    --libdir="\${prefix}/lib" \
+    --with-headers="${FINALROOT}/headers26" \
+    --cache-file=config.cache \
+    --without-cvs \
+    --without-gd \
+    --enable-add-ons=libidn \
+    --enable-static-nss \
+    --disable-build-nscd \
+    --disable-nscd \
+    --with-tls \
+    --with-__thread \
+    --enable-kernel=${grte_kernel26} \
+    || error "glibc 32-bit (2.6) final configure failed"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" PARALLELMFLAGS="${JFLAGS}" \
+    || error "glibc 32-bit (2.6) final build failed"
+  idir="${FINALROOT}/packaging/glibc/2.6/32bit"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+    install_root="${idir}" \
+    || error "glibc 32-bit (2.6) final install failed"
+  make localedata/install-locales install_root="${idir}" \
+    SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+    || error "glibc 32-bit (2.6) final localedata install failed"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+    || error "glibc 32-bit (2.6) final in-situ install failed"
+  make localedata/install-locales \
+    SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+    || error "glibc 32-bit (2.6) final in-situ localedata install failed"
+  } # Enf of if we are not building 32bit.
+
+  #
+  # And now the 64-bit versions of glibc
+  #
+  [ "${grte_support_kernel24}" = "0" ] || {
+    cd "${FINALROOT}"
+    rm -fr glibc64-24-build
+    mkdir glibc64-24-build
+    cd glibc64-24-build
+    echo "slibdir=${GRTEROOT}/lib64" > configparms
+    echo "libc_cv_forced_unwind=yes" > config.cache
+    echo "libc_cv_c_cleanup=yes" >> config.cache
+    CC="${STAGE2CC64}" \
+    LD="${STAGE2LD}" \
+    AS="${STAGE2AS}" \
+    NM="${STAGE2NM}" \
+    AR="${STAGE2AR}" \
+    OBJDUMP="${STAGE2OBJDUMP}" \
+    RANLIB="${STAGE2RANLIB}" \
+    CFLAGS="-O3 -g" \
+    "${SRC}/glibc-${glibc_version}/configure" \
+      --build="${arch64}" \
+      --host="${arch64}" \
+      --target="${arch64}" \
+      --prefix="${GRTEROOT}" \
+      --libdir="\${prefix}/lib64" \
+      --with-headers="${FINALROOT}/headers24" \
+      --cache-file=config.cache \
+      --without-cvs \
+      --without-gd \
+      --enable-add-ons=libidn \
+      --enable-static-nss \
+      --disable-build-nscd \
+      --disable-nscd \
+      --with-tls \
+      --with-__thread \
+      --enable-kernel=${grte_kernel24} \
+      || error "glibc 64-bit (2.4) final configure failed"
+    make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" PARALLELMFLAGS="${JFLAGS}" \
+      || error "glibc 64-bit (2.4) final build failed"
+    idir="${FINALROOT}/packaging/glibc/2.4/64bit"
+    rm -fr "${idir}"
+    mkdir -p "${idir}"
+    make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+      install_root="${idir}" \
+      || error "glibc 64-bit (2.4) final install failed"
+    make localedata/install-locales install_root="${idir}" \
+      SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+      || error "glibc 64-bit (2.4) final localedata install failed"
+  } # End of if we require 2.4 kernel support
+
+  cd "${FINALROOT}"
+  rm -fr glibc64-26-build
+  mkdir glibc64-26-build
+  cd glibc64-26-build
+  echo "slibdir=${GRTEROOT}/lib64" > configparms
+  echo "libc_cv_forced_unwind=yes" > config.cache
+  echo "libc_cv_c_cleanup=yes" >> config.cache
+  CC="${STAGE2CC64}" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  CFLAGS="-O3 -g" \
+  "${SRC}/glibc-${glibc_version}/configure" \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --prefix="${GRTEROOT}" \
+    --libdir="\${prefix}/lib64" \
+    --with-headers="${FINALROOT}/headers26" \
+    --cache-file=config.cache \
+    --without-cvs \
+    --without-gd \
+    --enable-add-ons=libidn \
+    --enable-static-nss \
+    --disable-build-nscd \
+    --disable-nscd \
+    --with-tls \
+    --with-__thread \
+    --enable-kernel=${grte_kernel26} \
+    || error "glibc 64-bit (2.6) final configure failed"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" PARALLELMFLAGS="${JFLAGS}" \
+    || error "glibc 64-bit (2.6) final build failed"
+  idir="${FINALROOT}/packaging/glibc/2.6/64bit"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+    install_root="${idir}" \
+    || error "glibc 64-bit (2.6) final install failed"
+  make localedata/install-locales install_root="${idir}" \
+    SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+    || error "glibc 64-bit (2.6) final localedata install failed"
+  make AR="${STAGE2AR}" RANLIB="${STAGE2RANLIB}" install \
+    || error "glibc 64-bit (2.6) final in-situ install failed"
+  make localedata/install-locales \
+    SUPPORTED-LOCALES="${SUPPORTED_LOCALES}" \
+    || error "glibc 64-bit (2.6) final in-situ localedata install failed"
+
+  #
+  # Now the final compile of binutils
+  #
+  cd "${FINALROOT}"
+  rm -fr binutils-build
+  mkdir binutils-build
+  cd binutils-build
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts}" \
+  "${SRC}/binutils-${binutils_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --disable-nls \
+    --enable-shared \
+    --enable-64-bit-bfd \
+    --with-native-lib-dirs="${GRTEROOT}/lib ${GRTEROOT}/local/lib" \
+    --enable-deterministic-ar \
+    || error "binutils final configuration failed"
+  make $JFLAGS || error "binutils final build failed"
+  idir="${FINALROOT}/packaging/binutils"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+  make install DESTDIR="${idir}" \
+    || error "binutils final install failed"
+  make install || error "binutils final in-situ install failed"
+
+  #
+  # Now come several runtime libraries that are used by GRTE components
+  # such as Python.
+  #
+
+  #
+  # First up is zlib.
+  #
+  idir="${FINALROOT}/packaging/zlib"
+  rm -fr "${idir}"
+  mkdir -p "${idir}${GRTEROOT}"
+  idir="${idir}${GRTEROOT}"
+  mkdir -p "${idir}/lib" "${idir}/lib64"
+  mkdir -p "${idir}/include32" "${idir}/include64"
+
+  [ "${grte_m32}" = "0" ] || {
+  cd "${FINALROOT}"
+  rm -fr zlib32-build
+  mkdir zlib32-build
+  cd "${SRC}/zlib-${zlib_version}"
+  find . | cpio -pdum "${FINALROOT}/zlib32-build" 2> /dev/null
+  cd "${FINALROOT}/zlib32-build"
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  RANLIB="${STAGE2RANLIB}" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+  ./configure --shared || error "zlib 32-bit coniguration failed"
+  make || error "zlib 32-bit shared compile failed"
+  cp libz.so.${zlib_version} "${GRTEROOT}/lib/libz.so.${zlib_version}"
+  ln -fs libz.so.${zlib_version} "${GRTEROOT}/lib/libz.so"
+  ln -fs libz.so.${zlib_version} "${GRTEROOT}/lib/libz.so.1"
+  cp libz.so.${zlib_version} "${idir}/lib/libz.so.${zlib_version}"
+  ln -fs libz.so.${zlib_version} "${idir}/lib/libz.so"
+  ln -fs libz.so.${zlib_version} "${idir}/lib/libz.so.1"
+  cp libz.a "${GRTEROOT}/lib/libz.a"
+  cp libz.a "${idir}/lib/libz.a"
+  cp zlib.h zconf.h "${idir}/include32"
+  }  # end 32bit zlib
+
+  # Now the 64-bit version of zlib
+  cd "${FINALROOT}"
+  rm -fr zlib64-build
+  mkdir zlib64-build
+  cd "${SRC}/zlib-${zlib_version}"
+  find . | cpio -pdum "${FINALROOT}/zlib64-build"
+  cd "${FINALROOT}/zlib64-build"
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  RANLIB="${STAGE2RANLIB}" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+  ./configure --shared || error "64-bit zlib configuration failed"
+  make || error "zlib 64-bit shared compile failed"
+  cp libz.so.${zlib_version} "${GRTEROOT}/lib64/libz.so.${zlib_version}"
+  ln -fs libz.so.${zlib_version} "${GRTEROOT}/lib64/libz.so"
+  ln -fs libz.so.${zlib_version} "${GRTEROOT}/lib64/libz.so.1"
+  cp zlib.h zconf.h "${GRTEROOT}/include"
+  cp libz.so.${zlib_version} "${idir}/lib64/libz.so.${zlib_version}"
+  ln -fs libz.so.${zlib_version} "${idir}/lib64/libz.so"
+  ln -fs libz.so.${zlib_version} "${idir}/lib64/libz.so.1"
+  cp libz.a "${GRTEROOT}/lib64/libz.a"
+  cp libz.a "${idir}/lib64/libz.a"
+  cp zlib.h zconf.h "${idir}/include64"
+
+  #
+  # Before we can compile the full GCC suite, we need to compile
+  # infozip, as it is used by the Java stuff for creating the jar
+  # command. We also need GMP and MPFR in order for the Fortran compiler
+  # to build. So we do all of these now, in that order, but only if we
+  # are supporting the additional languages.
+  #
+  [ "${grte_java}" = "0" ] || {
+  #
+  # Next up is InfoZIP (for jar and Java)
+  #
+  cd "${FINALROOT}"
+  rm -fr infozip-build
+  mkdir infozip-build
+  cd infozip-build
+  mkdir zip30 unzip60
+  cd "${SRC}/zip30e"
+  find . | cpio -pdum "${FINALROOT}/infozip-build/zip30" 2> /dev/null
+  cd "${SRC}/unzip60c"
+  find . | cpio -pdum "${FINALROOT}/infozip-build/unzip60" 2> /dev/null
+
+  idir="${FINALROOT}/packaging/infozip"
+  rm -fr "${idir}"
+  mkdir -p "${idir}${GRTEROOT}"
+  idir="${idir}${GRTEROOT}"
+  mkdir "${idir}/bin"
+
+  cd "${FINALROOT}/infozip-build/unzip60"
+  rm -f Makefile
+  ln -s unix/Makefile .
+
+  make generic \
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="\$(CC) -Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CF="-O3 -I. -DUNIX" \
+    || error "unzip build failed"
+  cp unzip funzip "${GRTEROOT}/bin"
+  cp unzip funzip "${idir}/bin"
+
+  cd ../zip30
+  make -f unix/Makefile generic \
+    CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+    CFLAGS="-O3 -I. -DUNIX -Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+    || error "zip build failed"
+  cp zip zipnote zipsplit zipcloak "${GRTEROOT}/bin"
+  cp zip zipnote zipsplit zipcloak "${idir}/bin"
+  } # End of if we are not doing Java
+
+  [ "${grte_python_support}" = "0" ] || {  
+  #
+  # ncurses is used by Python for its interactive mode. There are
+  # two ways that ncurses can be compiled: one with wide character
+  # support and one without. Ubuntu compiles both so we will too.
+  # We do not install any of the programs, just the libraries and headers.
+  #
+  idir="${FINALROOT}/packaging/ncurses"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+
+  cd "${FINALROOT}"
+  rm -fr ncurses-build32
+  mkdir ncurses-build32
+  cd ncurses-build32
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include" \
+  CXX="${STAGE2CXX32} -isystem ${GRTEROOT}/include" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  CXXFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  "${SRC}/ncurses-${ncurses_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch32}" \
+    --build="${arch32}" \
+    --target="${arch32}" \
+    --libdir="${GRTEROOT}/lib" \
+    --with-gpm \
+    --with-shared \
+    --with-normal \
+    --without-profile \
+    --without-debug \
+    --disable-rpath \
+    --enable-echo \
+    --enable-const \
+    --without-ada \
+    --enable-symlinks \
+    --disable-lp64 \
+    --with-chtype='long' \
+    --with-mmask-t='long' \
+    --with-default-terminfo-dir=/etc/terminfo \
+    --with-terminfo-dirs="/etc/terminfo:/lib/terminfo:/usr/share/terminfo" \
+    --with-ticlib \
+    --enable-overwrite \
+    || error "ncurses 32-bit configuration failed"
+  make $JFLAGS || error "ncurses 32-bit build failed"
+  make install.libs DESTDIR="${idir}" \
+    || error "ncurses 32-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
+  make install.libs || error "ncurses 32-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr ncurses-build64
+  mkdir ncurses-build64
+  cd ncurses-build64
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include" \
+  CXX="${STAGE2CXX64} -isystem ${GRTEROOT}/include" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  CXXFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  "${SRC}/ncurses-${ncurses_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --with-gpm \
+    --with-shared \
+    --with-normal \
+    --without-profile \
+    --without-debug \
+    --disable-rpath \
+    --enable-echo \
+    --enable-const \
+    --without-ada \
+    --enable-symlinks \
+    --disable-lp64 \
+    --with-chtype='long' \
+    --with-mmask-t='long' \
+    --with-default-terminfo-dir=/etc/terminfo \
+    --with-terminfo-dirs="/etc/terminfo:/lib/terminfo:/usr/share/terminfo" \
+    --with-ticlib \
+    --enable-overwrite \
+    || error "ncurses 64-bit configuration failed"
+  make $JFLAGS || error "ncurses 64-bit build failed"
+  make install.libs DESTDIR="${idir}" \
+    || error "ncurses 64-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
+  make install.libs || error "ncurses 64-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr ncursesw-build32
+  mkdir ncursesw-build32
+  cd ncursesw-build32
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include" \
+  CXX="${STAGE2CXX32} -isystem ${GRTEROOT}/include" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  CXXFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  "${SRC}/ncurses-${ncurses_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch32}" \
+    --build="${arch32}" \
+    --target="${arch32}" \
+    --libdir="${GRTEROOT}/lib" \
+    --with-gpm \
+    --with-shared \
+    --with-normal \
+    --without-profile \
+    --without-debug \
+    --disable-rpath \
+    --enable-echo \
+    --enable-const \
+    --without-ada \
+    --enable-symlinks \
+    --disable-lp64 \
+    --with-chtype='long' \
+    --with-mmask-t='long' \
+    --with-default-terminfo-dir=/etc/terminfo \
+    --with-terminfo-dirs="/etc/terminfo:/lib/terminfo:/usr/share/terminfo" \
+    --with-ticlib \
+    --disable-overwrite \
+    --enable-widec \
+    || error "ncurses 32-bit configuration failed"
+  make $JFLAGS || error "ncurses 32-bit build failed"
+  make install.libs DESTDIR="${idir}" \
+    || error "ncurses 32-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include/ncursesw" "${idir}${GRTEROOT}/include32"
+  rmdir "${idir}${GRTEROOT}/include"
+  make install.libs || error "ncurses 32-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr ncursesw-build64
+  mkdir ncursesw-build64
+  cd ncursesw-build64
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include" \
+  CXX="${STAGE2CXX64} -isystem ${GRTEROOT}/include" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  CXXFLAGS="-O3 -g ${lfsopts} -I${SRC}/ncurses-${ncurses_version}" \
+  "${SRC}/ncurses-${ncurses_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --with-gpm \
+    --with-shared \
+    --with-normal \
+    --without-profile \
+    --without-debug \
+    --disable-rpath \
+    --enable-echo \
+    --enable-const \
+    --without-ada \
+    --enable-symlinks \
+    --disable-lp64 \
+    --with-chtype='long' \
+    --with-mmask-t='long' \
+    --with-default-terminfo-dir=/etc/terminfo \
+    --with-terminfo-dirs="/etc/terminfo:/lib/terminfo:/usr/share/terminfo" \
+    --with-ticlib \
+    --disable-overwrite \
+    --enable-widec \
+    || error "ncurses 64-bit configuration failed"
+  make $JFLAGS || error "ncurses 64-bit build failed"
+  make install.libs DESTDIR="${idir}" \
+    || error "ncurses 64-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include/ncursesw" "${idir}${GRTEROOT}/include64"
+  rmdir "${idir}${GRTEROOT}/include"
+  make install.libs || error "ncurses 64-bit in-situ install failed"
+
+  #
+  # Now we can do GNU readline
+  #
+  idir="${FINALROOT}/packaging/readline"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+
+  cd "${FINALROOT}"
+  rm -fr readline-build32
+  mkdir readline-build32
+  cd readline-build32
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/readline-${readline_version}" \
+  "${SRC}/readline-${readline_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch32}" \
+    --build="${arch32}" \
+    --target="${arch32}" \
+    --libdir="${GRTEROOT}/lib" \
+    --with-curses \
+    --enable-shared \
+    || error "readline 32-bit configuration failed"
+  SHOBJ_CFLAGS="-fPIC -D_REENTRANT" \
+  SHOBJ_LDFLAGS='-shared' \
+  SHLIB_LIBS="-lncurses" \
+  make $JFLAGS || error "readline 32-bit build failed"
+  make install DESTDIR="${idir}" \
+    || error "readline 32-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
+  make install || error "readline 32-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr readline-build64
+  mkdir readline-build64
+  cd readline-build64
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -I${SRC}/readline-${readline_version}" \
+  "${SRC}/readline-${readline_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --enable-shared \
+    --with-curses \
+    || error "readline 64-bit configuration failed"
+  SHOBJ_CFLAGS="-fPIC -D_REENTRANT" \
+  SHOBJ_LDFLAGS='-shared' \
+  SHLIB_LIBS="-lncurses" \
+  make $JFLAGS || error "readline 64-bit build failed"
+  make install DESTDIR="${idir}" \
+    || error "readline 64-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
+  make install || error "readline 64-bit in-situ install failed"
+
+  #
+  # Now for  bzip2
+  #
+  idir="${FINALROOT}/packaging/bzip2"
+  rm -fr "${idir}"
+  mkdir -p "${idir}${GRTEROOT}"
+  idir="${idir}${GRTEROOT}"
+  mkdir "${idir}/bin" "${idir}/lib" "${idir}/lib64"
+  mkdir "${idir}/include32" "${idir}/include64"
+
+  cd "${FINALROOT}"
+  rm -fr bzip232-build
+  mkdir bzip232-build
+  cd "${SRC}/bzip2-${bzip2_version}"
+  find . | cpio -pdum "${FINALROOT}/bzip232-build" 2> /dev/null
+  cd "${FINALROOT}/bzip232-build"
+  make \
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+    || error "bzip2 build failed"
+  #
+  # Manually install things as the Makefile is pretty lame and doesn't
+  # support DESTDIR and the like.
+  #
+  cp -f libbz2.so.1.0.4 libbz2.a "${idir}/lib"
+  ln -fs libbz2.so.1.0.4 "${idir}/lib/libbz2.so.1.0"
+  ln -fs libbz2.so.1.0 "${idir}/lib/libbz2.so"
+  cp -f bzlib.h "${idir}/include32"
+  cp -f bzip2 "${idir}/bin/bzip2"
+  ln -fs bzip2 "${idir}/bin/bzcat"
+  ln -fs bzip2 "${idir}/bin/bunzip2"
+  cp -f bzmore "${idir}/bin/bzmore"
+  ln -fs bzmore "${idir}/bin/bzless"
+  cp -f bzgrep "${idir}/bin/bzgrep"
+  ln -fs bzgrep "${idir}/bin/bzegrep"
+  ln -fs bzgrep "${idir}/bin/bzfgrep"
+  cp -f bzdiff "${idir}/bin/bzdiff"
+  ln -fs bzdiff "${idir}/bin/bzcmp"
+  cp -f bzip2recover "${idir}/bin/bzip2recover"
+  chmod 755 "${idir}/bin"/*
+  
+  #
+  # Now for the 64-bit bzip2
+  #
+  cd "${FINALROOT}"
+  rm -fr bzip264-build
+  mkdir bzip264-build
+  cd "${SRC}/bzip2-${bzip2_version}"
+  find . | cpio -pdum "${FINALROOT}/bzip264-build" 2> /dev/null
+  cd "${FINALROOT}/bzip264-build"
+  make \
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+    || error "64-bit bzip2 build failed"
+  cp -f libbz2.so.1.0.4 libbz2.a "${idir}/lib64"
+  ln -fs libbz2.so.1.0.4 "${idir}/lib64/libbz2.so.1.0"
+  ln -fs libbz2.so.1.0 "${idir}/lib64/libbz2.so"
+  cp -f bzlib.h "${idir}/include64"
+
+  #
+  # Next up is BerkeleyDB. We configure things such that it uses a
+  # private, GRTE-only prefix for all exported functions, so that the
+  # GRTE version can be linked in an application that may need other
+  # versions. Yes, this is insane, but unfortunately common.
+  #
+  # By default, the DB installation process will strip binaries as
+  # they are being installed unless we make a debug build (which
+  # we don't want to do).  To avoid this, we fake a cached value for
+  # ac_cv_path_db_cv_path_strip (to be the same value as DB uses in
+  # debug builds) to avoid the stripping.
+  #
+  # Also note, even though --enable-pthreadsmutexes=yes is given, the
+  # configure script will claim that that variable is not set.  The
+  # variable *is* actually set, there's just an error in the configure
+  # script's echoing of results!  (This option gone as of DB 4.7.x.)
+  #
+  idir="${FINALROOT}/packaging/db"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+
+  cd "${FINALROOT}"
+  rm -fr db-build32
+  mkdir db-build32
+  cd db-build32
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  CXX="${STAGE2CXX32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts}" \
+  CXXFLAGS="-O3 -g ${lfsopts}" \
+  "${SRC}/db-${bdb_version}/dist/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch32}" \
+    --build="${arch32}" \
+    --target="${arch32}" \
+    --libdir="${GRTEROOT}/lib" \
+    --sysconfdir=/etc \
+    --disable-cxx \
+    --enable-compat185 \
+    --disable-rpc \
+    --disable-tcl \
+    --disable-test \
+    --disable-java \
+    --enable-pthreadsmutexes=yes \
+    --enable-shared \
+    --with-uniquename="_grte_4420" \
+    ac_cv_path_db_cv_path_strip=debug_build_no_strip \
+    || error "db 32-bit configuration failed"
+  make $JFLAGS || error "db 32-bit build failed"
+  make install DESTDIR="${idir}" \
+    || error "db 32-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
+  mv -f "${idir}${GRTEROOT}/bin" "${idir}${GRTEROOT}/bin32"
+  make install || error "db 32-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr db-build64
+  mkdir db-build64
+  cd db-build64
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  CXX="${STAGE2CXX64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts}" \
+  CXXFLAGS="-O3 -g ${lfsopts}" \
+  "${SRC}/db-${bdb_version}/dist/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --sysconfdir=/etc \
+    --disable-cxx \
+    --enable-compat185 \
+    --disable-rpc \
+    --disable-tcl \
+    --disable-test \
+    --disable-java \
+    --enable-pthreadsmutexes=yes \
+    --enable-shared \
+    --with-uniquename="_grte_4420" \
+    ac_cv_path_db_cv_path_strip=debug_build_no_strip \
+    || error "db 64-bit configuration failed"
+  make $JFLAGS || error "db 64-bit build failed"
+  make install DESTDIR="${idir}" \
+    || error "db 64-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
+  mv -f "${idir}${GRTEROOT}/bin" "${idir}${GRTEROOT}/bin64"
+  make install || error "db 64-bit in-situ install failed"
+
+  #
+  # Now do gdbm
+  #
+  idir="${FINALROOT}/packaging/gdbm"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+
+  cd "${FINALROOT}"
+  rm -fr gdbm-build32
+  mkdir gdbm-build32
+  cd gdbm-build32
+  CC="${STAGE2CC32} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib/ld-linux.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+  "${SRC}/gdbm-${gdbm_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch32}" \
+    --build="${arch32}" \
+    --target="${arch32}" \
+    --libdir="${GRTEROOT}/lib" \
+    --enable-shared \
+    || error "gdbm 32-bit configuration failed"
+  echo "/* We use fcntl locking (POSIX) instead of flock (BSD) */" >> autoconf.h
+  echo "#undef HAVE_FLOCK" >> autoconf.h
+  make $JFLAGS || error "gdbm 32-bit build failed"
+  make install INSTALL_ROOT="${idir}" \
+    || error "gdbm 32-bit install failed"
+  make install-compat INSTALL_ROOT="${idir}" \
+    || error "gdbm 32-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include32"
+  make install || error "gdbm 32-bit in-situ install failed"
+  make install-compat || error "gdbm 32-bit in-situ install failed"
+
+  cd "${FINALROOT}"
+  rm -fr gdbm-build64
+  mkdir gdbm-build64
+  cd gdbm-build64
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LD="${STAGE2LD}" \
+  AS="${STAGE2AS}" \
+  NM="${STAGE2NM}" \
+  AR="${STAGE2AR}" \
+  OBJDUMP="${STAGE2OBJDUMP}" \
+  RANLIB="${STAGE2RANLIB}" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-O3 -g ${lfsopts} -D_REENTRANT" \
+  "${SRC}/gdbm-${gdbm_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --host="${arch64}" \
+    --build="${arch64}" \
+    --target="${arch64}" \
+    --libdir="${GRTEROOT}/lib64" \
+    --enable-shared \
+    || error "gdbm 64-bit configuration failed"
+  echo "/* We use fcntl locking (POSIX) instead of flock (BSD) */" >> autoconf.h
+  echo "#undef HAVE_FLOCK" >> autoconf.h
+  make $JFLAGS || error "gdbm 64-bit build failed"
+  make install INSTALL_ROOT="${idir}" \
+    || error "gdbm 64-bit install failed"
+  make install-compat INSTALL_ROOT="${idir}" \
+    || error "gdbm 64-bit install failed"
+  mv -f "${idir}${GRTEROOT}/include" "${idir}${GRTEROOT}/include64"
+  make install || error "gdbm 64-bit in-situ install failed"
+  make install-compat || error "gdbm 64-bit in-situ install failed"
+  } # End of if we are not building python support.
+
+  #
+  # Do the final full-scale gcc build
+  #
+  # Note that this is a bootstrap build, so we need to set BOOT_CFLAGS
+  # in the 'make' environment so that debug prefixes in the post-stage1
+  # builds are mapped properly.  We need to set FCFLAGS similarly, to
+  # make sure the mapping apply to the fortran libraries.
+  #
+  PATH="${GRTEROOT}/bin:${STAGE2ROOT}/root/bin:${origpath}"
+  cd "${FINALROOT}"
+  # --with-startfile-prefix-1="${STAGE2ROOT}/root/lib"
+  #
+  # with-startfile-prefix-1 is unsupported anymore, so we have to
+  # patch the Makefile.in
+  sed -e "s:^DRIVER_DEFINES = :DRIVER_DEFINES = -DSTANDARD_STARTFILE_PREFIX_1=\\\\\\\"${GRTEROOT}/lib64/\\\\\\\" -DSTANDARD_STARTFILE_PREFIX_2=\\\\\\\"${GRTEROOT}/lib/\\\\\\\" :" ${SRC}/gcc-Makefile.in.orig > ${SRC}/gcc-${gcc_version}/gcc/Makefile.in
+  rm -fr gcc-build
+  mkdir gcc-build
+  cd gcc-build
+  CC="${STAGE2CC64} -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64" \
+  LDFLAGS="-Wl,-I,${GRTEROOT}/lib64/ld-linux-x86-64.so.2" \
+  CFLAGS="-g -isystem ${GRTEROOT}/include -L${GRTEROOT}/lib64 -DSTANDARD_INCLUDE_DIR=\\\\\\\"\"${GRTEROOT}/include\\\\\\\"\"" \
+  AR="${STAGE2AR}" \
+  RANLIB="${STAGE2RANLIB}" \
+  AR_FOR_TARGET="${STAGE2AR}" \
+  RANLIB_FOR_TARGET="${STAGE2RANLIB}" \
+  "${SRC}/gcc-${gcc_version}/configure" \
+    --prefix="${GRTEROOT}" \
+    --with-root-prefix="${GRTEROOT}" \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64}" \
+    --enable-languages="${languages}" \
+    --enable-shared \
+    --enable-__cxa_atexit \
+    --with-native-system-header-dir="${GRTEROOT}/include" \
+    --with-local-prefix="${GRTEROOT}/local" \
+    --with-debug-prefix-map="${DEBUG_PREFIX_MAPPINGS}" \
+    ${xtra_gcc_cfg} \
+    || error "gcc final configuration failed"
+  make $JFLAGS \
+    BOOT_CFLAGS="-g -O2 ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
+    FCFLAGS="-g -O2 ${DEBUG_PREFIX_MAP_GCC_FLAGS}" \
+    || error "gcc final build failed"
+  idir="${FINALROOT}/packaging/gcc"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+  make install DESTDIR="${idir}" \
+    || error "gcc final install failed"
+  make install || error "gcc final in-situ install failed"
+
+  #
+  # Build 32-bit argv0 switcher
+  #
+  [ "${grte_m32}" = "0" ] || {
+  ${STAGE2CC32} -g \
+    -isystem "${GRTEROOT}/include" \
+    -L"${GRTEROOT}/lib" \
+    -Wl,-I,"${GRTEROOT}/lib/ld-linux.so.2" \
+    -o "${FINALROOT}/packaging/argv0switch" \
+    "${SRC}/argv0switch.c"
+  } # 32bit argv0 switcher.
+
+  #
+  # Copy appropriate files to debug-src directory
+  #
+  idir="${FINALROOT}/packaging/debug-src"
+  rm -fr "${idir}"
+  mkdir -p "${idir}"
+
+  echo "Copying pristine sources to debug-src/src."
+  mkdir -p "${idir}/${GRTEROOT}/debug-src/src"
+  cd "${OSRC}"
+  find . \( -type d -name 'examples*' -prune \) -o \
+         \( -type d -name '*java*' -prune \) -o \
+         \( -type d -name 'test*' -prune \) -o \
+         \( -type d -name 'docs' -prune \) -o \
+         \( -type d -name 'linux-${headers26}' -prune \) -o \
+         -print |
+    cpio -pdm "${idir}/${GRTEROOT}/debug-src/src"
+  cp "${absroot}/argv0switch.c" "${idir}/${GRTEROOT}/debug-src/src"
+
+  echo "Copying stage2 generated sources to debug-src/stage2."
+  mkdir -p "${idir}/${GRTEROOT}/debug-src/stage2"
+  build_directories="
+    gcc-build
+    glibc-build32
+    glibc-build64
+    root
+  "
+  cd "${STAGE2ROOT}"
+  find $build_directories \
+       \( -type d -name .libs \) -prune -o \
+       \( -name "*.la" \) -prune -o \
+       \( -name "*.a" \) -prune -o \
+       \( -name "*.so" \) -prune -o \
+       \( -name "*.so.*" \) -prune -o \
+       \( -type f -name "*.c" \) -print -o \
+       \( -type f -name "*.h" \) -print -o \
+       \( -type f -name "*.cc" \) -print -o \
+       \( -type f -name "*.tcc" \) -print -o \
+       \( -type f -name "*.inc" \) -print -o \
+       \( -type f -iname "*.s" \) -print -o \
+       \( -type d -name gcc \) -print -o \
+       \( -type d -name libgcc \) -print | \
+    cpio -pdLm "${idir}/${GRTEROOT}/debug-src/stage2"
+  # We need to copy all files under the stage2 compiler root, too.
+  find root/include \
+    -type f -print | \
+    cpio -pdLmm "${idir}/${GRTEROOT}/debug-src/stage2"
+
+  echo "Copying final generated sources to debug-src/final."
+  mkdir -p "${idir}/${GRTEROOT}/debug-src/final"
+  build_directories="
+    binutils-build
+    bzip232-build
+    bzip264-build
+    db-build32
+    db-build64
+    gcc-build
+    gdbm-build32
+    gdbm-build64
+    glibc32-26-build
+    glibc64-26-build
+    headers26
+    ncurses-build32
+    ncurses-build64
+    ncursesw-build32
+    ncursesw-build64
+    readline-build32
+    readline-build64
+    zlib32-build
+    zlib64-build
+  "
+  cd "${FINALROOT}"
+  find $build_directories \
+       \( -type d -name .libs \) -prune -o \
+       \( -name "*.la" \) -prune -o \
+       \( -name "*.a" \) -prune -o \
+       \( -name "*.so" \) -prune -o \
+       \( -name "*.so.*" \) -prune -o \
+       \( -type f -name "*.c" \) -print -o \
+       \( -type f -name "*.h" \) -print -o \
+       \( -type f -name "*.cc" \) -print -o \
+       \( -type f -name "*.tcc" \) -print -o \
+       \( -type f -name "*.inc" \) -print -o \
+       \( -type f -iname "*.s" \) -print -o \
+       \( -type d -name gcc \) -print -o \
+       \( -type d -name libgcc \) -print  | \
+    cpio -pdLm "${idir}/${GRTEROOT}/debug-src/final"
+
+  # We need to make some additional empty directories so that paths using
+  # .. will work.
+  for subdir in \
+      ncurses-build32/form \
+      ncurses-build32/menu \
+      ncurses-build32/panel \
+      ncurses-build64/form \
+      ncurses-build64/menu \
+      ncurses-build64/panel \
+      ncursesw-build32/form \
+      ncursesw-build32/menu \
+      ncursesw-build32/panel \
+      ncursesw-build64/form \
+      ncursesw-build64/menu \
+      ncursesw-build64/panel \
+  ; do
+    mkdir -p "${idir}/${GRTEROOT}/debug-src/final/$subdir"
+  done
+
+  echo "Fixing permissions on debug-src."
+  chmod -R u=rwX,go=rX "${idir}"
+}
+
+exit 0
