@@ -107,9 +107,10 @@ origpath="${PATH}"
 # Canonical architecture names
 #
 arch32="i686-linux-gnu"
-arch64="x86_64-linux-gnu"
+arch64="x86_64-pc-linux-gnu"
 arch32build="i686-build-linux-gnu"
 arch64build="x86_64-build-linux-gnu"
+arch64stage1="x86_64-stage1-linux-gnu"
 
 #
 # Set the final language list
@@ -296,6 +297,7 @@ xtra_gcc_cfg=""
   # The sources need to be writable ... copy the original sources into a new
   # location and make sure they are all writable.
   #
+  [ -z "${PRESERVE_BUILD}" ] && {
   echo "Copying sources to temporary build location"
   rm -fr "${SRC}"
   mkdir -p "${SRC}"
@@ -303,12 +305,14 @@ xtra_gcc_cfg=""
   find . -depth -print | cpio -pdum "${SRC}" > /dev/null 2>&1
   cp "${absroot}/argv0switch.c" "${SRC}"
   chmod -Rf u+w "${SRC}"
+  }
 
   #
   # Put the new binutils first in the path for when we configure gcc.
   #
   PATH="${STAGE1ROOT}/root/bin:${origpath}"
-
+  
+  false || {
   rm -fr "${STAGE1ROOT}"
   mkdir -p "${STAGE1ROOT}"
   cd "${STAGE1ROOT}"
@@ -332,7 +336,7 @@ xtra_gcc_cfg=""
   cd binutils-build
   CC=gcc "${SRC}/binutils-${binutils_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
-    --target="${arch64}" \
+    --target="${arch64stage1}" \
     --disable-nls \
     --disable-shared \
     --enable-64-bit-bfd \
@@ -354,7 +358,7 @@ xtra_gcc_cfg=""
   echo "libc_cv_386_tls=yes" >> config.cache
   "${SRC}/glibc-${glibc_version}/configure" \
     --build="${arch64}" \
-    --host="${arch64}" \
+    --host="${arch64stage1}" \
     --prefix=/usr \
     --with-headers="${HDRDIR}" \
     --cache-file=config.cache \
@@ -373,11 +377,11 @@ xtra_gcc_cfg=""
     "${HDRDIR}/gnu"
   cp "${SRC}/glibc-${glibc_version}/include/features.h" "${HDRDIR}"
   cp bits/stdio_lim.h "${HDRDIR}/bits/"
-
+  
   #
-  # Now build a minimal gcc that can target both 64-bit and 32-bit
-  # machines. We only need the C compiler because we will be using this
-  # compiler for re-producing binutils, glibc and gcc below.
+  # Now build a minimal gcc. We only need the C compiler because we
+  # will be using this compiler for re-producing binutils, glibc and
+  # gcc below.
   #
   cd "${STAGE1ROOT}"
   rm -fr gcc-build
@@ -385,52 +389,37 @@ xtra_gcc_cfg=""
   cd gcc-build
   CC=gcc "${SRC}/gcc-${gcc_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
-    --target="${arch64}" \
-    --enable-languages=c,c++ \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64stage1}" \
+    --enable-languages=c \
     --disable-nls \
     --disable-shared \
     --disable-threads \
     --enable-__cxa_atexit \
-    --with-sysroot="${SYSROOT}" \
-    --with-headers="${HDRDIR}" \
+    ${xtra_gcc_cfg} \
+    --disable-libgomp \
+    --disable-libssp \
+    --disable-libada \
+    --disable-systemtap \
+    --disable-valgrind-annotations \
+    --disable-vtable-verify \
+    --disable-libvtv \
+    --disable-libsanitizer \
+    --without-zstd \
+    --disable-lto \
+    --without-isl \
+    --without-headers \
     || error "gcc stage1 configuration failed"
-  make $JFLAGS all-gcc all-target-libgcc || error "gcc stage1 build failed"
-  make install-gcc install-target-libgcc || error "gcc stage1 install failed"
-
+  # Somehow make needs to retry
+  make $JFLAGS all-gcc &> make.log || error "gcc stage1 build failed"
+  make $JFLAGS all-target-libgcc &> make2.log || error "gcc stage1 build libgcc failed"
+  make install-gcc install-target-libgcc &> install.log || error "gcc stage1 install failed"
+  
   #
   # Now for the full glibc build, which will also result in things like
   # crt1.o being built, which will be needed when we build the full
-  # version of gcc. We need to do this twice. The first time is for
-  # 32-bit and the second is for 64-bit.
-  #
-  cd "${STAGE1ROOT}"
-  rm -fr glibc-build32
-  mkdir glibc-build32
-  cd glibc-build32
-  echo "slibdir=/lib" > configparms
-  echo "libc_cv_forced_unwind=yes" > config.cache
-  echo "libc_cv_c_cleanup=yes" >> config.cache
-  echo "libc_cv_386_tls=yes" >> config.cache
-  CC="${STAGE1ROOT}/root/bin/${arch64}-gcc -m32" \
-  "${SRC}/glibc-${glibc_version}/configure" \
-    --build="${arch32build}" \
-    --host="${arch32}" \
-    --prefix=/usr \
-    --libdir="\${prefix}/lib" \
-    --with-headers="${HDRDIR}" \
-    --cache-file=config.cache \
-    --without-cvs \
-    --disable-profile \
-    --disable-debug \
-    --without-gd \
-    --with-tls \
-    --with-__thread \
-    ${xtra_glibc32_cfg} \
-    || error "glibc 32-bit stage1 configure failed"
-  make PARALLELMFLAGS="${JFLAGS}" \
-    || error "glibc 32-bit stage1 build failed"
-  make install install_root="${SYSROOT}" \
-    || error "glibc 32-bit stage1 install failed"
+  # version of gcc.
 
   cd "${STAGE1ROOT}"
   rm -fr glibc-build64
@@ -439,11 +428,10 @@ xtra_gcc_cfg=""
   echo "slibdir=/lib64" > configparms
   echo "libc_cv_forced_unwind=yes" > config.cache
   echo "libc_cv_c_cleanup=yes" >> config.cache
-  echo "libc_cv_386_tls=yes" >> config.cache
-  CC="${STAGE1ROOT}/root/bin/${arch64}-gcc -m64 -D__x86_64__" \
-  "${SRC}/glibc-${glibc_version}/configure" \
-    --build="${arch32}" \
-    --host="${arch64}" \
+  # CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__"
+    "${SRC}/glibc-${glibc_version}/configure" \
+    --build="${arch64}" \
+    --host="${arch64stage1}" \
     --prefix=/usr \
     --libdir="\${prefix}/lib64" \
     --with-headers="${HDRDIR}" \
@@ -454,6 +442,9 @@ xtra_gcc_cfg=""
     --without-gd \
     --with-tls \
     --with-__thread \
+    --disable-static-pie \
+    --disable-systemtap \
+    --disable-nscd \
     --enable-kernel=${grte_kernel26} \
     || error "glibc 64-bit stage1 configure failed"
   make PARALLELMFLAGS="${JFLAGS}" \
@@ -472,19 +463,35 @@ xtra_gcc_cfg=""
   rm -fr gcc-final
   mkdir gcc-final
   cd gcc-final
-  CC=gcc "${SRC}/gcc-${gcc_version}/configure" \
+  # CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__"
+    "${SRC}/gcc-${gcc_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
-    --target="${arch64}" \
+    --build="${arch64}" \
+    --host="${arch64}" \
+    --target="${arch64stage1}" \
     --enable-languages=c,c++ \
+    --enable-poison-system-directories \
     --disable-nls \
     --enable-__cxa_atexit \
+    ${xtra_gcc_cfg} \
+    --disable-libssp \
+    --disable-libada \
+    --disable-systemtap \
+    --disable-valgrind-annotations \
+    --disable-vtable-verify \
+    --disable-libvtv \
+    --without-zstd \
+    --disable-lto \
+    --without-isl \
+    --disable-bootstrap \
     --with-sysroot="${SYSROOT}" \
     --with-headers="${HDRDIR}" \
-    || error "gcc stage1 configuration failed"
-  make $JFLAGS || error "gcc final stage1 build failed"
-  make install || error "gcc final stage1 install failed"
+    || error "gcc final stage1 configuration failed"
+  make $JFLAGS &> make.log || error "gcc final stage1 build failed"
+  make install &> install.log || error "gcc final stage1 install failed"
 
   PATH="${origpath}"
+  error "finished stage1"
 }
 
 #
