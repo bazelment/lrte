@@ -274,10 +274,7 @@ glibcdir="2.6"
   glibcdir="2.4"
 }
 
-xtra_gcc_cfg=""
-[ "${grte_m32}" = "0" ] && {
-    xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
-}
+xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
 
 #
 # The first order of business is to compile a binutils/gcc combination
@@ -312,8 +309,7 @@ xtra_gcc_cfg=""
   #
   PATH="${STAGE1ROOT}/root/bin:${origpath}"
   
-  false || {
-  rm -fr "${STAGE1ROOT}"
+  true || { rm -fr "${STAGE1ROOT}"
   mkdir -p "${STAGE1ROOT}"
   cd "${STAGE1ROOT}"
   mkdir root
@@ -396,6 +392,10 @@ xtra_gcc_cfg=""
     --disable-nls \
     --disable-shared \
     --disable-threads \
+    --disable-libunwind-exceptions \
+    --disable-esp \
+    --disable-libstdcxx-pch \
+    --with-long-double-128 \
     --enable-__cxa_atexit \
     ${xtra_gcc_cfg} \
     --disable-libgomp \
@@ -428,7 +428,9 @@ xtra_gcc_cfg=""
   echo "slibdir=/lib64" > configparms
   echo "libc_cv_forced_unwind=yes" > config.cache
   echo "libc_cv_c_cleanup=yes" >> config.cache
-  # CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__"
+  # Force c++ related compilation to be disabled
+  echo "libc_cv_cxx_link_ok=no" >> config.cache
+  CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__" \
     "${SRC}/glibc-${glibc_version}/configure" \
     --build="${arch64}" \
     --host="${arch64stage1}" \
@@ -445,13 +447,15 @@ xtra_gcc_cfg=""
     --disable-static-pie \
     --disable-systemtap \
     --disable-nscd \
+    --disable-cet \
     --enable-kernel=${grte_kernel26} \
     || error "glibc 64-bit stage1 configure failed"
-  make PARALLELMFLAGS="${JFLAGS}" \
+  make PARALLELMFLAGS="${JFLAGS}" &> make.log \
     || error "glibc 64-bit stage1 build failed"
-  make install install_root="${SYSROOT}" \
+  make install install_root="${SYSROOT}" &> install.log \
     || error "glibc 64-bit stage1 install failed"
-
+  }
+  
   #
   # Finally do the full gcc build that will include everything (such as
   # libmudflap, libgcc_eh etc) and not just the compiler. This is needed
@@ -463,7 +467,7 @@ xtra_gcc_cfg=""
   rm -fr gcc-final
   mkdir gcc-final
   cd gcc-final
-  # CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__"
+  # CC="${STAGE1ROOT}/root/bin/${arch64stage1}-gcc -m64 -D__x86_64__" 
     "${SRC}/gcc-${gcc_version}/configure" \
     --prefix="${STAGE1ROOT}/root" \
     --build="${arch64}" \
@@ -481,9 +485,8 @@ xtra_gcc_cfg=""
     --disable-vtable-verify \
     --disable-libvtv \
     --without-zstd \
-    --disable-lto \
+    --enable-lto \
     --without-isl \
-    --disable-bootstrap \
     --with-sysroot="${SYSROOT}" \
     --with-headers="${HDRDIR}" \
     || error "gcc final stage1 configuration failed"
