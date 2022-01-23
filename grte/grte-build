@@ -489,6 +489,12 @@ xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
     --without-isl \
     --with-sysroot="${SYSROOT}" \
     --with-headers="${HDRDIR}" \
+    --without-included-gettext  \
+    --disable-esp \
+    --disable-cet \
+    --enable-default-pie \
+    --enable-default-ssp \
+    --disable-bootstrap \
     || error "gcc final stage1 configuration failed"
   make $JFLAGS &> make.log || error "gcc final stage1 build failed"
   make install &> install.log || error "gcc final stage1 install failed"
