@@ -386,7 +386,6 @@ xtra_gcc_cfg=""
   # Some of the bits created here survive into the binaries built during
   # the final build stage, so we map filename prefixes in the debug info.
   #
-
   cd "${STAGE2ROOT}"
   rm -fr glibc-build64
   mkdir glibc-build64
@@ -530,10 +529,8 @@ xtra_gcc_cfg=""
 #
 [ -z "${SKIP_FINAL}" ] && {
   PATH="${STAGE2ROOT}/root/bin:${origpath}"
-  STAGE2CC32="${STAGE2ROOT}/root/bin/gcc -m32 -march=pentium3 -mtune=pentium4 ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
-  STAGE2CC64="${STAGE2ROOT}/root/bin/gcc -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
-  STAGE2CXX32="${STAGE2ROOT}/root/bin/g++ -m32 -march=pentium3 -mtune=pentium4 ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
-  STAGE2CXX64="${STAGE2ROOT}/root/bin/g++ -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+   STAGE2CC64="${STAGE2ROOT}/root/bin/gcc -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
+   STAGE2CXX64="${STAGE2ROOT}/root/bin/g++ -m64 -D__x86_64__ ${DEBUG_PREFIX_MAP_GCC_FLAGS}"
   STAGE2LD="${STAGE2ROOT}/root/bin/ld"
   STAGE2AS="${STAGE2ROOT}/root/bin/as ${DEBUG_PREFIX_MAP_GAS_FLAGS}"
   STAGE2AR="${STAGE2ROOT}/root/bin/ar"

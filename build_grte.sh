@@ -12,7 +12,9 @@ apt-get update
 # alien, fakeroot, debhelper: convert rpm package to debian package
 # python: 2to3
 apt-get install -y texinfo texi2html xz-utils make gcc g++ gawk \
-    rpm alien fakeroot debhelper python
+	rpm alien fakeroot debhelper python
+
+apt-get install -y python3 bison libisl-dev libgmp-dev  libmpc-dev libmpfr-dev
 
 GRTE_PREFIX=$1
 GRTE_TMPDIR=$2

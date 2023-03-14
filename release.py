@@ -7,6 +7,7 @@ import argparse
 import os
 import os.path
 import subprocess
+import tempfile
 
 def start_container(docker_image, command,
                     container_name = None,
@@ -84,6 +85,36 @@ def get_svn_revision(svn_directory, svn_url):
         raise
 
 
+def build_lrte(args, topdir, mounts, env, lrte_output, lrte_output_in_docker):
+    with tempfile.NamedTemporaryFile(mode='w+') as tfile:
+        tfile.write('''#!/bin/bash
+# This runs inside docker container as root to build GRTE
+
+set -x
+
+GRTE_PREFIX=$1
+GRTE_TMPDIR=$2
+mkdir ${GRTE_PREFIX}
+
+rm -rf grte/sources/*
+./grte/prepare-sources.sh
+./grte/grte-build ${GRTE_PREFIX} ${GRTE_TMPDIR}
+bash
+./grte/grte-package ${GRTE_PREFIX} ${GRTE_TMPDIR}
+''')
+        tfile.flush()
+        start_container(args.docker_image,
+                        ['/bin/bash', tfile.name, args.lrte_prefix, lrte_output_in_docker],
+                        workdir = topdir,
+                        attach_stdin = True,
+                        attach_stdout = True,
+                        attach_stderr = True,
+                        mounts = mounts + [(tfile.name, tfile.name)],
+                        environment = env)
+    print('deb packages: %s' % (os.path.join(lrte_output, 'results/debs')))
+    print('rpm packages: %s' % (os.path.join(lrte_output, 'results/rpms')))
+
+        
 def main():
     parser = argparse.ArgumentParser(
         description = __doc__,
@@ -152,16 +183,7 @@ def main():
     lrte_output_in_docker = os.path.join(output_dir, 'lrte')
 
     if 'lrte' in args.actions:
-        start_container(args.docker_image,
-                        ['./build_grte.sh', args.lrte_prefix, lrte_output_in_docker],
-                        workdir = topdir,
-                        attach_stdin = True,
-                        attach_stdout = True,
-                        attach_stderr = True,
-                        mounts = mounts,
-                        environment = env)
-        print('deb packages: %s' % (os.path.join(lrte_output, 'results/debs')))
-        print('rpm packages: %s' % (os.path.join(lrte_output, 'results/rpms')))
+        build_lrte(args, topdir, mounts, env, lrte_output, lrte_output_in_docker)
 
     if 'crosstool' in args.actions:
         if not os.path.isdir(os.path.join(lrte_output, 'results/debs')):

@@ -290,6 +290,9 @@ xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
   SYSROOT="${STAGE1ROOT}/${arch64}-root"
   HDRDIR="${SYSROOT}/usr/include"
 
+  # SYSROOT="${STAGE1ROOT}/root/${arch64stage1}"
+  # HDRDIR="${SYSROOT}/usr/include"
+
   #
   # The sources need to be writable ... copy the original sources into a new
   # location and make sure they are all writable.
@@ -309,7 +312,7 @@ xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
   #
   PATH="${STAGE1ROOT}/root/bin:${origpath}"
   
-  true || { rm -fr "${STAGE1ROOT}"
+  false || { rm -fr "${STAGE1ROOT}"
   mkdir -p "${STAGE1ROOT}"
   cd "${STAGE1ROOT}"
   mkdir root
@@ -384,11 +387,15 @@ xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
   mkdir gcc-build
   cd gcc-build
   CC=gcc "${SRC}/gcc-${gcc_version}/configure" \
-    --prefix="${STAGE1ROOT}/root" \
-    --build="${arch64}" \
-    --host="${arch64}" \
     --target="${arch64stage1}" \
-    --enable-languages=c \
+    --prefix="${STAGE1ROOT}/root" \
+    --with-glibc-version=2.11    \
+    --with-sysroot="${SYSROOT}" \
+    --with-newlib \
+    --without-headers \
+    --enable-initfini-array \
+    --enable-languages=c,c++ \
+    --disable-libstdcxx \
     --disable-nls \
     --disable-shared \
     --disable-threads \
@@ -487,14 +494,13 @@ xtra_gcc_cfg="--disable-multilib --with-multilib-list=m64"
     --without-zstd \
     --enable-lto \
     --without-isl \
-    --with-sysroot="${SYSROOT}" \
-    --with-headers="${HDRDIR}" \
+    --with-build-sysroot="${SYSROOT}" \
     --without-included-gettext  \
     --disable-esp \
     --disable-cet \
     --enable-default-pie \
     --enable-default-ssp \
-    --disable-bootstrap \
+    --enable-initfini-array \
     || error "gcc final stage1 configuration failed"
   make $JFLAGS &> make.log || error "gcc final stage1 build failed"
   make install &> install.log || error "gcc final stage1 install failed"
